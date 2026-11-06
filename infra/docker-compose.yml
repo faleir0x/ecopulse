@@ -1,0 +1,54 @@
+﻿services:
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: ecopulse-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ecopulse
+      RABBITMQ_DEFAULT_PASS: ecopulse
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: ecopulse-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ecopulse
+      POSTGRES_PASSWORD: ecopulse
+      POSTGRES_DB: ecopulse
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ecopulse -d ecopulse"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: ecopulse-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  rabbitmq_data:
+  pg_data:
+  redis_data:

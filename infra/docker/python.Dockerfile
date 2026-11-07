@@ -17,7 +17,14 @@ COPY services/${SERVICE} services/${SERVICE}
 RUN uv sync --frozen --no-dev --no-editable --package ecopulse-${SERVICE}
 
 FROM python:${PYTHON_VERSION}-slim
-RUN useradd --system --uid 10001 --no-create-home ecopulse
+# Atualiza pacotes do SO com correção de segurança e remove o pip (não é usado em
+# runtime e traz bibliotecas vendorizadas com CVEs: urllib3, msgpack, setuptools)
+RUN apt-get update \
+ && apt-get upgrade -y --no-install-recommends \
+ && rm -rf /var/lib/apt/lists/* \
+ && python -m pip uninstall -y pip \
+ && rm -rf /usr/local/lib/python*/ensurepip \
+ && useradd --system --uid 10001 --no-create-home ecopulse
 COPY --from=build /app/.venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1
 USER 10001

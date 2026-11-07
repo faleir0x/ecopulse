@@ -21,6 +21,7 @@ dev = [
 [tool.ruff]
 line-length = 100
 target-version = "py313"
+extend-exclude = ["design"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "S", "ASYNC", "SIM", "RUF"]
@@ -37,14 +38,14 @@ mypy_path = ["packages/common/src", "services/api/src"]
 explicit_package_bases = true
 
 [[tool.mypy.overrides]]
-module = ["aio_pika.*", "aiormq.*"]
+module = ["asyncpg.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 markers = ["integration: precisa da infra do docker compose rodando"]
-addopts = "-m 'not integration'"
+addopts = "-m 'not integration' --import-mode=importlib"
 
 [tool.ruff.lint.isort]
 known-first-party = ["ecopulse_common", "ecopulse_api", "ecopulse_processor", "ecopulse_realtime", "ecopulse_environment"]

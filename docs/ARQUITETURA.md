@@ -90,7 +90,8 @@ Exchange topic `ecopulse.events`. Envelope: `event_id, type, version, occurred_a
 ## Particionamento geoespacial
 
 - **GeoHash** precisão 6 (~1,2 × 0,6 km): células de ocorrência e de assinatura de alertas.
-- **GeoHash** precisão 5 (~5 km): chave de partição no *consistent hash exchange*. Cada região fica sempre no mesmo worker, preservando a ordem.
+- **GeoHash** precisão 5 (~5 km): chave de partição no *consistent hash exchange*, que distribui as regiões entre N filas-partição (uma região sempre cai na mesma fila, inclusive nos retries). Os workers consomem as partições como consumidores concorrentes; a corrida entre dois relatos da mesma célula é resolvida no banco com lock por célula.
+- No Redis Cluster, as chaves por célula (`cell:{geohash5}:...`) se espalham pelos slots dos 3 nós: sharding horizontal do cache por região.
 - O app assina sua célula e as 8 vizinhas; a distância exata é conferida no app.
 
 ## Cache e consistência

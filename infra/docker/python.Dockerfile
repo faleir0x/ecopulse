@@ -20,5 +20,5 @@ FROM python:${PYTHON_VERSION}-slim
 RUN useradd --system --uid 10001 --no-create-home ecopulse
 COPY --from=build /app/.venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1
-USER ecopulse
+USER 10001
 WORKDIR /app

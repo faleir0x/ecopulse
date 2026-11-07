@@ -19,7 +19,7 @@ Cada etapa termina com **commit + push** na branch `caue`.
 - [x] **0.2** Documento de arquitetura + ADRs
 - [x] **0.3** Monorepo: `services/`, `packages/common`, `pyproject` com ruff, mypy e pytest
 - [x] **0.4** Infra: Dockerfiles, compose completo, Redis Cluster, plugin de consistent hash no RabbitMQ, migrações SQL
-- [ ] **0.5** CI: lint, tipos, testes, auditoria de dependências, segredos, SAST, scan de imagens, Dependabot
+- [x] **0.5** CI: lint, tipos, testes, auditoria de dependências, segredos, SAST, scan de imagens, Dependabot
 
 ## Fase 1: Caminho de escrita
 - [ ] **1.1** `common`: envelope de eventos, topologia RabbitMQ (topic, consistent hash, retry com backoff, DLQ), pool do banco

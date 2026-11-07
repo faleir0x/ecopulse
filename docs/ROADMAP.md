@@ -23,7 +23,7 @@ Cada etapa termina com **commit + push** na branch `caue`.
 
 ## Fase 1: Caminho de escrita
 - [x] **1.1** `common`: envelope de eventos, topologia RabbitMQ (topic, consistent hash, retry com backoff, DLQ), pool do banco
-- [ ] **1.2** `api`: `POST /v1/relatos` com publisher confirms
+- [x] **1.2** `api`: `POST /v1/relatos` com publisher confirms
 - [ ] **1.3** `processor`: consumo idempotente, geohash, agrupamento em ocorrências, retry/DLQ
 
 ## Fase 2: Caminho de leitura

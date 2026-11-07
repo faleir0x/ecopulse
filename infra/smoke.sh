@@ -17,8 +17,10 @@ docker compose exec -T rabbitmq rabbitmq-plugins list -e -m | grep >/dev/null --
 
 echo "-> API"
 curl -fsS "$api/health" | grep >/dev/null -- ok
-curl -fsS -X POST "$api/relatos" -H 'content-type: application/json' \
-  -d "{\"client_id\":\"$(cat /proc/sys/kernel/random/uuid)\",\"latitude\":-23.55,\"longitude\":-46.63}" \
+curl -fsS -X POST "$api/v1/relatos" -H "content-type: application/json" \
+  -d "{\"client_id\":\"$(cat /proc/sys/kernel/random/uuid)\",\"device_id\":\"$(cat /proc/sys/kernel/random/uuid)\",
+       \"tipo\":\"alagamento\",\"severidade\":\"alto\",\"latitude\":-23.55,\"longitude\":-46.63,
+       \"registrado_em\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" \
   | grep >/dev/null -- aceito
 
 echo "Tudo certo."

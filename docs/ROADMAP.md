@@ -28,7 +28,7 @@ Cada etapa termina com **commit + push** na branch `caue`.
 
 ## Fase 2: Caminho de leitura
 - [x] **2.1** Transactional outbox + relay
-- [ ] **2.2** Leituras por bbox, detalhe e confirmações, com cache no Redis Cluster e invalidação por evento
+- [x] **2.2** Leituras por bbox, detalhe e confirmações, com cache no Redis Cluster e invalidação por evento
 - [ ] **2.3** Rate limit por aparelho
 
 ## Fase 3: Tempo real

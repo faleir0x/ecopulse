@@ -7,10 +7,18 @@ Plataforma distribuída mobile para monitoramento colaborativo de riscos ambient
 ```bash
 cd infra
 cp .env.example .env   # ajuste as portas se alguma já estiver em uso
-docker compose up -d
+docker compose up -d --build
+./smoke.sh             # confere se tudo subiu integrado
 ```
 
-Painel do RabbitMQ: http://localhost:15672 (`ecopulse` / `ecopulse`).
+| Serviço | Endereço |
+|---|---|
+| API | http://localhost:8000/docs |
+| Painel do RabbitMQ | http://localhost:15672 (`ecopulse` / `ecopulse`) |
+| PostgreSQL + PostGIS | localhost:5432 |
+| Redis Cluster | localhost:7001, 7002, 7003 |
+
+A rede Docker usa a sub-rede `10.89.70.0/24` (IPs fixos para o Redis Cluster sobreviver a reinícios). O banco é criado pelo `infra/postgres/init.sql` só na primeira vez; para recriar: `docker compose down -v`.
 
 ## Documentação
 

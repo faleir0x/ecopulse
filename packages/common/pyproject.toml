@@ -1,0 +1,19 @@
+[project]
+name = "ecopulse-common"
+version = "0.1.0"
+description = "Código compartilhado entre os serviços: eventos, mensageria, banco e configuração"
+requires-python = ">=3.13"
+dependencies = [
+  "aio-pika>=9.5",
+  "asyncpg>=0.30",
+  "pydantic>=2.10",
+  "pydantic-settings>=2.6",
+  "redis>=5.2",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ecopulse_common"]

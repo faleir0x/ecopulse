@@ -17,7 +17,7 @@ Cada etapa termina com **commit + push** na branch `caue`.
 ## Fase 0: Fundação
 - [x] **0.1** Higiene do repositório: codificação UTF-8 sem BOM, `.gitignore`, `.gitattributes`, `.editorconfig`, portas configuráveis, roadmap
 - [x] **0.2** Documento de arquitetura + ADRs
-- [ ] **0.3** Monorepo: `services/`, `packages/common`, `pyproject` com ruff, mypy e pytest
+- [x] **0.3** Monorepo: `services/`, `packages/common`, `pyproject` com ruff, mypy e pytest
 - [ ] **0.4** Infra: Dockerfiles, compose completo, Redis Cluster, plugin de consistent hash no RabbitMQ, migrações SQL
 - [ ] **0.5** CI: lint, tipos, testes, auditoria de dependências, segredos, SAST, scan de imagens, Dependabot
 

@@ -17,3 +17,14 @@ Painel do RabbitMQ: http://localhost:15672 (`ecopulse` / `ecopulse`).
 - [Roadmap](docs/ROADMAP.md)
 - [Arquitetura](docs/ARQUITETURA.md)
 - [Decisões (ADRs)](docs/adr/)
+
+## Desenvolvimento (backend)
+
+Requer [uv](https://docs.astral.sh/uv/).
+
+```bash
+uv sync --all-packages      # cria .venv com todos os serviços
+uv run ruff check .         # lint
+uv run mypy packages services
+uv run pytest
+```

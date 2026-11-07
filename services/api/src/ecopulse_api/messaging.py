@@ -1,7 +1,8 @@
-import os
 import aio_pika
 
-RABBIT_URL = os.getenv("RABBIT_URL", "amqp://ecopulse:ecopulse@localhost:5672/")
+from ecopulse_common.config import Settings
+
+RABBIT_URL = Settings().rabbit_url
 
 EXCHANGE = "relatos.exchange"
 QUEUE = "relatos"
@@ -9,11 +10,13 @@ DLX = "relatos.dlx"
 DLQ = "relatos.dlq"
 
 
-async def connect():
+async def connect() -> aio_pika.abc.AbstractRobustConnection:
     return await aio_pika.connect_robust(RABBIT_URL)
 
 
-async def declare_topology(channel):
+async def declare_topology(
+    channel: aio_pika.abc.AbstractChannel,
+) -> aio_pika.abc.AbstractExchange:
     """Cria exchange, fila principal (durável) e a Dead Letter Queue."""
     dlx = await channel.declare_exchange(DLX, aio_pika.ExchangeType.DIRECT, durable=True)
     dlq = await channel.declare_queue(DLQ, durable=True)

@@ -1,15 +1,16 @@
 import json
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import aio_pika
 from fastapi import FastAPI
 
-from app import messaging
-from app.schemas import RelatoIn
+from ecopulse_api import messaging
+from ecopulse_api.schemas import RelatoIn
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.connection = await messaging.connect()
     app.state.channel = await app.state.connection.channel()
     app.state.exchange = await messaging.declare_topology(app.state.channel)
@@ -21,17 +22,17 @@ app = FastAPI(title="EcoPulse API", lifespan=lifespan)
 
 
 @app.get("/health")
-async def health():
+async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
 @app.post("/relatos", status_code=202)
-async def criar_relato(relato: RelatoIn):
+async def criar_relato(relato: RelatoIn) -> dict[str, str]:
     corpo = relato.model_dump(mode="json")
     mensagem = aio_pika.Message(
         body=json.dumps(corpo).encode(),
         content_type="application/json",
-        delivery_mode=aio_pika.DeliveryMode.PERSISTENT,   # sobrevive a reinício do broker
+        delivery_mode=aio_pika.DeliveryMode.PERSISTENT,  # sobrevive a reinício do broker
     )
     await app.state.exchange.publish(mensagem, routing_key=messaging.QUEUE)
     return {"status": "aceito", "client_id": corpo["client_id"]}

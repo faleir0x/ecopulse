@@ -11,6 +11,7 @@ members = [
     "ecopulse",
     "ecopulse-api",
     "ecopulse-common",
+    "ecopulse-processor",
 ]
 
 [[package]]
@@ -276,6 +277,17 @@ requires-dist = [
     { name = "pydantic-settings", specifier = ">=2.6" },
     { name = "redis", specifier = ">=5.2" },
 ]
+
+[[package]]
+name = "ecopulse-processor"
+version = "0.1.0"
+source = { editable = "services/processor" }
+dependencies = [
+    { name = "ecopulse-common" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "ecopulse-common", editable = "packages/common" }]
 
 [[package]]
 name = "fastapi"

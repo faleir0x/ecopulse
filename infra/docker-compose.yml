@@ -57,7 +57,7 @@ services:
       - pg_data:/var/lib/postgresql/data
       - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ecopulse -d ecopulse"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ecopulse -d ecopulse"]  # TCP: ignora o servidor temporário do initdb
       interval: 10s
       timeout: 5s
       retries: 10
@@ -116,6 +116,14 @@ services:
     command: ["uvicorn", "ecopulse_api.main:app", "--host", "0.0.0.0", "--port", "8000"]
     ports:
       - "${API_PORT:-8000}:8000"
+
+  processor:
+    <<: *python-service
+    build:
+      context: ..
+      dockerfile: infra/docker/python.Dockerfile
+      args: { SERVICE: processor }
+    command: ["python", "-m", "ecopulse_processor"]
 
 networks:
   ecopulse:

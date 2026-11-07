@@ -52,3 +52,24 @@ class RelatoRecebido(BaseModel):
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
     registrado_em: datetime  # horário no aparelho (pode ser antigo, se veio da outbox offline)
+
+
+class StatusOcorrencia(StrEnum):
+    ATIVA = "ativa"
+    EXPIRADA = "expirada"
+
+
+class OcorrenciaPayload(BaseModel):
+    """Payload de `ocorrencia.criada` / `.atualizada` / `.expirada` (estado completo)."""
+
+    id: int
+    tipo: TipoRisco
+    severidade: Severidade
+    latitude: float
+    longitude: float
+    geohash: str
+    confirmacoes: int
+    status: StatusOcorrencia
+    criada_em: datetime
+    atualizada_em: datetime
+    expira_em: datetime

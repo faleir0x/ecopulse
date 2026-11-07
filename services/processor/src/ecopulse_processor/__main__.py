@@ -1,0 +1,82 @@
+"""Entrada do worker: python -m ecopulse_processor
+
+- configure_logging("processor"), pool do banco, conexão RabbitMQ
+- canal com publisher_confirms=True e set_qos(prefetch_count=20)
+- declare_topology(settings.partitions) e consume() em TODAS as filas-partição com
+  handler = processar_relato
+- tarefa em paralelo: a cada regras.INTERVALO_EXPIRACAO_S chama expirar_ocorrencias
+  (loga e continua em caso de erro)
+- SIGTERM/SIGINT: para de consumir, cancela a tarefa, fecha conexão e pool
+"""
+
+import asyncio
+import contextlib
+import logging
+import signal
+
+import asyncpg
+
+from ecopulse_common import messaging
+from ecopulse_common.config import Settings
+from ecopulse_common.consumer import consume
+from ecopulse_common.db import create_pool
+from ecopulse_common.events import Envelope
+from ecopulse_common.logs import configure_logging
+from ecopulse_processor import regras
+from ecopulse_processor.servico import expirar_ocorrencias, processar_relato
+
+log = logging.getLogger(__name__)
+
+
+async def _expirar_periodicamente(pool: asyncpg.Pool, parar: asyncio.Event) -> None:
+    while not parar.is_set():
+        try:
+            total = await expirar_ocorrencias(pool)
+            if total:
+                log.info("expiração periódica concluída", extra={"total": total})
+        except Exception:
+            log.exception("falha na expiração periódica")
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(parar.wait(), timeout=regras.INTERVALO_EXPIRACAO_S)
+
+
+async def main() -> None:
+    settings = Settings()
+    configure_logging("processor", settings.log_level)
+    log.info("iniciando processor")
+
+    pool = await create_pool(settings.database_url, min_size=1, max_size=10)
+    connection = await messaging.connect(settings.rabbit_url)
+    channel = await connection.channel(publisher_confirms=True)
+    await channel.set_qos(prefetch_count=20)
+    topology = await messaging.declare_topology(channel, settings.partitions)
+
+    async def _handler(envelope: Envelope) -> None:
+        await processar_relato(pool, envelope)
+
+    for nome in topology.partition_queues:
+        fila = await channel.get_queue(nome)
+        await consume(fila, _handler, topology)
+
+    parar = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    for sinal in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(sinal, parar.set)
+
+    tarefa_expiracao = asyncio.create_task(_expirar_periodicamente(pool, parar))
+
+    await parar.wait()
+    log.info("encerrando processor")
+
+    tarefa_expiracao.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await tarefa_expiracao
+
+    await channel.close()
+    await connection.close()
+    await pool.close()
+    log.info("processor encerrado")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

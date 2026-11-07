@@ -1,4 +1,4 @@
-﻿import os
+import os
 import aio_pika
 
 RABBIT_URL = os.getenv("RABBIT_URL", "amqp://ecopulse:ecopulse@localhost:5672/")

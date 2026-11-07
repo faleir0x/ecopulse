@@ -1,10 +1,10 @@
-﻿services:
+services:
   rabbitmq:
     image: rabbitmq:3.13-management
     container_name: ecopulse-rabbitmq
     ports:
-      - "5672:5672"
-      - "15672:15672"
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_UI_PORT:-15672}:15672"
     environment:
       RABBITMQ_DEFAULT_USER: ecopulse
       RABBITMQ_DEFAULT_PASS: ecopulse
@@ -20,7 +20,7 @@
     image: postgis/postgis:16-3.4
     container_name: ecopulse-postgres
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     environment:
       POSTGRES_USER: ecopulse
       POSTGRES_PASSWORD: ecopulse
@@ -39,7 +39,7 @@
     container_name: ecopulse-redis
     command: ["redis-server", "--appendonly", "yes"]
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     healthcheck:

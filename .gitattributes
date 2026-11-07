@@ -1,0 +1,6 @@
+# Normaliza tudo para LF no repositório (evita CRLF vindo do Windows)
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.woff2 binary
+*.docx binary

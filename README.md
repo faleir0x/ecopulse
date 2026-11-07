@@ -15,3 +15,5 @@ Painel do RabbitMQ: http://localhost:15672 (`ecopulse` / `ecopulse`).
 ## Documentação
 
 - [Roadmap](docs/ROADMAP.md)
+- [Arquitetura](docs/ARQUITETURA.md)
+- [Decisões (ADRs)](docs/adr/)

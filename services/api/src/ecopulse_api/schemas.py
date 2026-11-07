@@ -21,3 +21,11 @@ class RelatoIn(BaseModel):
 class RelatoAceito(BaseModel):
     status: Literal["aceito"] = "aceito"
     client_id: UUID
+
+
+class ConfirmacaoIn(BaseModel):
+    """Confirmação de uma ocorrência existente. Vira um relato no local da ocorrência."""
+
+    client_id: UUID
+    device_id: UUID
+    registrado_em: datetime

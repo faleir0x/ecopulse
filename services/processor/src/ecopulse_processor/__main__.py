@@ -14,6 +14,7 @@ import contextlib
 import logging
 import signal
 
+import aio_pika
 import asyncpg
 
 from ecopulse_common import messaging
@@ -22,7 +23,7 @@ from ecopulse_common.consumer import consume
 from ecopulse_common.db import create_pool
 from ecopulse_common.events import Envelope
 from ecopulse_common.logs import configure_logging
-from ecopulse_processor import regras
+from ecopulse_processor import regras, relay
 from ecopulse_processor.servico import expirar_ocorrencias, processar_relato
 
 log = logging.getLogger(__name__)
@@ -51,6 +52,11 @@ async def main() -> None:
     await channel.set_qos(prefetch_count=20)
     topology = await messaging.declare_topology(channel, settings.partitions)
 
+    canal_relay = await connection.channel(publisher_confirms=True)
+    exchange = await canal_relay.declare_exchange(
+        messaging.EVENTS_EXCHANGE, aio_pika.ExchangeType.TOPIC, durable=True
+    )
+
     async def _handler(envelope: Envelope) -> None:
         await processar_relato(pool, envelope)
 
@@ -64,14 +70,19 @@ async def main() -> None:
         loop.add_signal_handler(sinal, parar.set)
 
     tarefa_expiracao = asyncio.create_task(_expirar_periodicamente(pool, parar))
+    tarefa_relay = asyncio.create_task(relay.rodar(pool, exchange, parar))
 
     await parar.wait()
     log.info("encerrando processor")
 
     tarefa_expiracao.cancel()
+    tarefa_relay.cancel()
     with contextlib.suppress(asyncio.CancelledError):
         await tarefa_expiracao
+    with contextlib.suppress(asyncio.CancelledError):
+        await tarefa_relay
 
+    await canal_relay.close()
     await channel.close()
     await connection.close()
     await pool.close()

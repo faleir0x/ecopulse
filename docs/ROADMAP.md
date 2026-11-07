@@ -27,7 +27,7 @@ Cada etapa termina com **commit + push** na branch `caue`.
 - [x] **1.3** `processor`: consumo idempotente, geohash, agrupamento em ocorrências, retry/DLQ
 
 ## Fase 2: Caminho de leitura
-- [ ] **2.1** Transactional outbox + relay
+- [x] **2.1** Transactional outbox + relay
 - [ ] **2.2** Leituras por bbox, detalhe e confirmações, com cache no Redis Cluster e invalidação por evento
 - [ ] **2.3** Rate limit por aparelho
 

@@ -3,6 +3,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Annotated
+from uuid import UUID
 
 import asyncpg
 from aio_pika.abc import AbstractRobustConnection
@@ -10,7 +11,7 @@ from aio_pika.exceptions import AMQPError
 from fastapi import FastAPI, HTTPException, Query, Request, status
 from redis.asyncio.cluster import RedisCluster
 
-from ecopulse_api import invalidacao, leitura
+from ecopulse_api import invalidacao, leitura, limite
 from ecopulse_api.schemas import ConfirmacaoIn, RelatoAceito, RelatoIn
 from ecopulse_common import geohash, messaging
 from ecopulse_common.cache import create_cluster
@@ -74,6 +75,18 @@ def _redis(request: Request) -> RedisCluster:
     return redis
 
 
+async def _aplicar_limite(request: Request, device_id: UUID) -> None:
+    """429 com Retry-After se o aparelho estourou o token bucket."""
+    resultado = await limite.consumir(_redis(request), device_id)
+    if not resultado.permitido:
+        log.warning("rate limit excedido", extra={"device_id": str(device_id)})
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "muitos relatos deste aparelho",
+            headers={"Retry-After": str(resultado.retry_after_s)},
+        )
+
+
 async def _publicar_relato(request: Request, relato: RelatoRecebido) -> None:
     """Publica `relato.recebido`. O event_id é o próprio client_id: um reenvio do app gera a
     mesma mensagem lógica. Broker fora → 503 (o app mantém na outbox e tenta de novo)."""
@@ -112,6 +125,7 @@ async def ready(request: Request) -> dict[str, str]:
 @app.post("/v1/relatos", status_code=status.HTTP_202_ACCEPTED)
 async def criar_relato(relato: RelatoIn, request: Request) -> RelatoAceito:
     """Aceita o relato e publica `relato.recebido`. Só responde 202 após o confirm do broker."""
+    await _aplicar_limite(request, relato.device_id)
     await _publicar_relato(request, RelatoRecebido(**relato.model_dump()))
     return RelatoAceito(client_id=relato.client_id)
 
@@ -151,6 +165,7 @@ async def confirmar_ocorrencia(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "ocorrência não encontrada")
     if ocorrencia.status is StatusOcorrencia.EXPIRADA:
         raise HTTPException(status.HTTP_409_CONFLICT, "ocorrência expirada")
+    await _aplicar_limite(request, confirmacao.device_id)
     relato = RelatoRecebido(
         client_id=confirmacao.client_id,
         device_id=confirmacao.device_id,

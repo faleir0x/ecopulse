@@ -11,6 +11,13 @@ from ecopulse_common import messaging
 from ecopulse_common.events import Envelope, EventType
 
 
+class RedisLiberado:
+    """Dublê do Redis Cluster: o token bucket sempre libera."""
+
+    async def eval(self, *_: Any) -> list[Any]:
+        return [1, "0"]
+
+
 @pytest.fixture
 def publicados(monkeypatch: pytest.MonkeyPatch) -> list[Envelope]:
     enviados: list[Envelope] = []
@@ -20,6 +27,7 @@ def publicados(monkeypatch: pytest.MonkeyPatch) -> list[Envelope]:
 
     monkeypatch.setattr(messaging, "publish", fake_publish)
     main.app.state.broker = MagicMock()
+    main.app.state.redis = RedisLiberado()
     return enviados
 
 
@@ -75,6 +83,7 @@ def test_broker_fora_responde_503(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(messaging, "publish", falha)
     main.app.state.broker = MagicMock()
+    main.app.state.redis = RedisLiberado()
     resposta = TestClient(main.app).post("/v1/relatos", json=_relato())
 
     assert resposta.status_code == 503

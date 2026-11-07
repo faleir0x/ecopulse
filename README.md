@@ -36,3 +36,10 @@ uv run ruff check .         # lint
 uv run mypy packages services
 uv run pytest
 ```
+
+Testes de integração (precisam da infra, **sem** a API e o processor rodando, senão o processor consome as mensagens dos testes):
+
+```bash
+cd infra && docker compose stop api processor && cd ..
+ECOPULSE_DATABASE_URL=postgresql://ecopulse:ecopulse@localhost:5432/ecopulse uv run pytest -m integration
+```

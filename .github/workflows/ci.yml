@@ -47,16 +47,22 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --all-packages
+      # Testes de integração rodam só com a infra: com o processor de pé, ele
+      # consumiria das filas as mensagens que os testes publicam.
       - name: Subir infraestrutura
+        working-directory: infra
+        run: >-
+          docker compose up -d --wait --wait-timeout 300
+          rabbitmq postgres redis-1 redis-2 redis-3 redis-cluster-init
+      - name: Testes de integração
+        env:
+          ECOPULSE_REDIS_REMAP_LOCALHOST: "true"
+        run: uv run pytest -q -m integration
+      - name: Subir serviços
         working-directory: infra
         run: docker compose up -d --build --wait --wait-timeout 300
       - name: Smoke test
         run: infra/smoke.sh
-      - name: Testes de integração
-        env:
-          ECOPULSE_REDIS_REMAP_LOCALHOST: "true"
-        # código 5 = nenhum teste coletado (ainda não há testes de integração)
-        run: uv run pytest -q -m integration || [ $? -eq 5 ]
       - name: Logs em caso de falha
         if: failure()
         working-directory: infra

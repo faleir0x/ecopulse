@@ -35,12 +35,15 @@ Cada etapa termina com **commit + push** na branch `caue`.
 - [x] **3.1** Serviço `realtime`: WebSocket, assinatura por célula geohash, Redis pub/sub
 - [x] **3.2** Teste de integração com várias instâncias
 
-## Fase 4: Mobile (depende do design)
-- [ ] **4.1** Projeto Expo, TypeScript, ESLint, Jest, jobs do mobile na CI
+## Fase 4: Mobile (design v6)
+
+Tipos de risco: os 4 da proposta (alagamento, calor, qualidade do ar, rota obstruída). Mídia do relato só local (sem upload).
+- [x] **4.1** Projeto Expo, TypeScript, ESLint, Jest, jobs do mobile na CI
 - [ ] **4.2** Tema (tokens light/dark) e componentes base
 - [ ] **4.3** Mapa e camadas
 - [ ] **4.4** Novo relato + outbox SQLite + sincronização
 - [ ] **4.5** Alertas (WebSocket + notificação local), onboarding e ajustes
+- [ ] **4.6** Aba Agora (temperatura, AQI, chuva, riscos por perto), com dados de exemplo até a 5.1
 
 ## Fase 5: Dados ambientais
 - [ ] **5.1** Serviço `environment`: Open-Meteo (AQI/temperatura) + simulador para a apresentação

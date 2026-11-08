@@ -1,0 +1,65 @@
+{
+  "expo": {
+    "name": "EcoPulse",
+    "slug": "ecopulse",
+    "scheme": "ecopulse",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "br.unip.ecopulse"
+    },
+    "android": {
+      "package": "br.unip.ecopulse",
+      "adaptiveIcon": {
+        "backgroundColor": "#F3F3F2",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      "expo-sqlite",
+      "expo-image",
+      "expo-video",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 160,
+          "backgroundColor": "#0A0A0B"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Usamos sua localização para mostrar riscos por perto e marcar seus relatos."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#0A0A0B"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Para anexar fotos e vídeos aos seus relatos.",
+          "cameraPermission": "Para fotografar a ocorrência no relato."
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}

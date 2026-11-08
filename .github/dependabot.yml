@@ -12,3 +12,13 @@ updates:
   - package-ecosystem: docker
     directory: /infra/docker
     schedule: { interval: weekly }
+  - package-ecosystem: npm
+    directory: /mobile
+    schedule: { interval: weekly }
+    # O Expo fixa versões compatíveis com o SDK: atualizações maiores vão pelo "expo install --fix"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    groups:
+      expo:
+        patterns: ["expo*", "@expo/*", "react-native*", "react", "react-dom"]

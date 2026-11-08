@@ -83,15 +83,51 @@ jobs:
         run: |
           uv export --all-packages --no-emit-workspace --format requirements-txt -o /tmp/requirements.txt
           uvx pip-audit --strict --disable-pip -r /tmp/requirements.txt
-      - name: Trivy (lockfiles, Dockerfiles e configuração)
+      # Política: alta/crítica com correção barra o merge; moderada só é reportada
+      # (ver docs/SEGURANCA.md)
+      - name: Trivy (lockfiles, Dockerfiles e configuração), bloqueante
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: fs
           scanners: vuln,misconfig,secret
-          severity: MEDIUM,HIGH,CRITICAL
+          severity: HIGH,CRITICAL
           ignore-unfixed: true
-          skip-dirs: design
+          skip-dirs: design,mobile-design,mobile/node_modules
           exit-code: "1"
+      - name: Trivy (moderadas), relatório
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scanners: vuln
+          severity: MEDIUM
+          skip-dirs: design,mobile-design,mobile/node_modules
+          exit-code: "0"
+
+  mobile:
+    name: Mobile (tipos, lint, testes, auditoria)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: TypeScript
+        run: npm run typecheck
+      - name: ESLint
+        run: npm run lint
+      - name: Jest
+        run: npm test -- --ci
+      - name: Expo Doctor (versões compatíveis com o SDK)
+        run: npx expo-doctor
+      - name: npm audit (dependências do app, bloqueia alta/crítica)
+        run: npm audit --omit=dev --audit-level=high
 
   secrets:
     name: Segredos no histórico (gitleaks)

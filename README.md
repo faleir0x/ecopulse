@@ -25,6 +25,7 @@ A rede Docker usa a sub-rede `10.89.70.0/24` (IPs fixos para o Redis Cluster sob
 - [Roadmap](docs/ROADMAP.md)
 - [Arquitetura](docs/ARQUITETURA.md)
 - [Decisões (ADRs)](docs/adr/)
+- [Política de segurança da CI](docs/SEGURANCA.md)
 
 ## Desenvolvimento (backend)
 
@@ -43,3 +44,16 @@ Testes de integração (precisam da infra, **sem** a API e o processor rodando, 
 cd infra && docker compose stop api processor && cd ..
 ECOPULSE_DATABASE_URL=postgresql://ecopulse:ecopulse@localhost:5432/ecopulse uv run pytest -m integration
 ```
+
+## App mobile (React Native + Expo)
+
+Requer Node 24+ e o app **Expo Go** no celular (Android), na mesma rede Wi-Fi do laptop.
+
+```bash
+cd mobile
+npm ci
+cp .env.example .env.local   # ajuste as portas se mudou no infra/.env
+npx expo start               # leia o QR code com o Expo Go
+```
+
+Verificações: `npm run check` (TypeScript, ESLint e Jest).

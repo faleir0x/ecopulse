@@ -24,6 +24,9 @@ TOKENS_POR_SEGUNDO = 1 / 30
 # Por IP: 60 relatos em rajada; depois, 1 por segundo
 CAPACIDADE_IP = 60
 TOKENS_POR_SEGUNDO_IP = 1.0
+# Rotas gastam a cota do OpenRouteService (2 chamadas por rota): balde próprio por IP
+CAPACIDADE_ROTA = 10
+TOKENS_POR_SEGUNDO_ROTA = 1 / 30
 
 _SCRIPT = """
 local capacidade = tonumber(ARGV[1])
@@ -64,6 +67,10 @@ def chave(device_id: UUID) -> str:
 
 def chave_ip(ip: str) -> str:
     return f"rl:ip:{{{ip}}}"
+
+
+def chave_rota(ip: str) -> str:
+    return f"rl:rota:{{{ip}}}"
 
 
 async def _consumir(
@@ -115,3 +122,13 @@ async def consumir_ip(
         tokens_por_segundo,
         {"ip": ip},
     )
+
+
+async def consumir_rota(
+    redis: RedisCluster,
+    ip: str,
+    capacidade: int = CAPACIDADE_ROTA,
+    tokens_por_segundo: float = TOKENS_POR_SEGUNDO_ROTA,
+) -> Resultado:
+    """Tenta gastar 1 token de rota do IP de origem."""
+    return await _consumir(redis, chave_rota(ip), capacidade, tokens_por_segundo, {"ip": ip})

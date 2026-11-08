@@ -7,19 +7,22 @@ from typing import Annotated
 from uuid import UUID
 
 import asyncpg
+import httpx
 from aio_pika.abc import AbstractRobustConnection
 from aio_pika.exceptions import AMQPError
-from fastapi import FastAPI, HTTPException, Query, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from redis.asyncio.cluster import RedisCluster
 from redis.exceptions import RedisError
 
-from ecopulse_api import invalidacao, leitura, limite
+from ecopulse_api import invalidacao, leitura, limite, rotas
 from ecopulse_api.schemas import (
     CelulaAmbiente,
     ConfirmacaoIn,
+    ModoRota,
     OcorrenciaDetalhe,
     RelatoAceito,
     RelatoIn,
+    RotaSegura,
     SituacaoRelato,
 )
 from ecopulse_common import geohash, messaging
@@ -221,6 +224,52 @@ async def ler_ambiente(
     if resultado is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "sem leitura")
     return resultado
+
+
+@app.get("/v1/rotas")
+async def calcular_rota(
+    request: Request,
+    origem: Annotated[str, Query(description="lat,lon")],
+    destino: Annotated[str, Query(description="lat,lon")],
+    cliente_ors: Annotated[httpx.AsyncClient, Depends(rotas.obter_cliente_ors)],
+    settings: Annotated[Settings, Depends(rotas.obter_settings)],
+    modo: Annotated[ModoRota, Query()] = "pedestre",
+) -> RotaSegura:
+    """Rota de A até B desviando das ocorrências ativas, comparada com a rota direta."""
+    try:
+        origem_coordenada = rotas.parse_coordenada(origem)
+        destino_coordenada = rotas.parse_coordenada(destino)
+        rotas.validar_distancia(origem_coordenada, destino_coordenada)
+        if not settings.ors_api_key:
+            raise rotas.OrsNaoConfigurado
+        ip = request.client.host if request.client is not None else "desconhecido"
+        _exigir_limite(
+            await limite.consumir_rota(_redis(request), ip), "muitas rotas deste IP", {"ip": ip}
+        )
+        return await rotas.rota_segura(
+            _pool(request),
+            _redis(request),
+            cliente_ors,
+            origem_coordenada,
+            destino_coordenada,
+            modo,
+            chave=settings.ors_api_key,
+            base_url=settings.ors_url,
+        )
+    except rotas.CoordenadaInvalida as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    except rotas.DistanciaGrandeDemais as exc:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, "distância grande demais"
+        ) from exc
+    except rotas.OrsNaoConfigurado as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "rotas indisponíveis") from exc
+    except rotas.OrsIndisponivel as exc:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "rotas indisponíveis",
+            headers={"Retry-After": "30"},
+        ) from exc
 
 
 @app.get("/v1/ocorrencias/{ocorrencia_id}")

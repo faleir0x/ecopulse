@@ -10,16 +10,18 @@ x-redis-node: &redis-node
     timeout: 3s
     retries: 10
 
+x-python-env: &python-env
+  ECOPULSE_RABBIT_URL: amqp://ecopulse:ecopulse@rabbitmq:5672/
+  ECOPULSE_DATABASE_URL: postgresql://ecopulse:ecopulse@postgres:5432/ecopulse
+  ECOPULSE_REDIS_NODES: redis-1:7001,redis-2:7002,redis-3:7003
+
 x-python-service: &python-service
   build:
     context: ..
     dockerfile: infra/docker/python.Dockerfile
   networks: [ecopulse]
   restart: unless-stopped
-  environment:
-    ECOPULSE_RABBIT_URL: amqp://ecopulse:ecopulse@rabbitmq:5672/
-    ECOPULSE_DATABASE_URL: postgresql://ecopulse:ecopulse@postgres:5432/ecopulse
-    ECOPULSE_REDIS_NODES: redis-1:7001,redis-2:7002,redis-3:7003
+  environment: *python-env
   depends_on:
     rabbitmq: { condition: service_healthy }
     postgres: { condition: service_healthy }
@@ -216,6 +218,10 @@ services:
       dockerfile: infra/docker/python.Dockerfile
       args: { SERVICE: api }
     command: ["uvicorn", "ecopulse_api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      <<: *python-env
+      # chave do OpenRouteService só no servidor (nunca vai ao app)
+      ECOPULSE_ORS_API_KEY: ${ORS_API_KEY:-}
     healthcheck:
       # python em vez de curl: a imagem slim não tem curl
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=2)"]

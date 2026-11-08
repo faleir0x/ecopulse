@@ -47,6 +47,37 @@ class OcorrenciaDetalhe(OcorrenciaPayload):
     nota: str | None
 
 
+ModoRota = Literal["pedestre", "carro"]
+
+
+class OcorrenciaEvitada(BaseModel):
+    """Ocorrência que a rota segura contorna e a rota direta atravessaria."""
+
+    id: int
+    tipo: TipoRisco
+    severidade: Severidade
+
+
+class RotaDireta(BaseModel):
+    """Rota sem desvios, para comparação. `atravessa` = ids das zonas cruzadas."""
+
+    distancia_m: float
+    duracao_s: float
+    atravessa: list[int]
+
+
+class RotaSegura(BaseModel):
+    """Rota calculada desviando das ocorrências ativas (ou a direta, como fallback)."""
+
+    modo: ModoRota
+    distancia_m: float
+    duracao_s: float
+    coordenadas: list[tuple[float, float]]  # (lat, lon)
+    evitadas: list[OcorrenciaEvitada]
+    direta: RotaDireta | None
+    aviso: str | None
+
+
 class CelulaAmbiente(BaseModel):
     """Uma célula geohash5 do mapa com a última leitura ambiental (ou null por grandeza)."""
 

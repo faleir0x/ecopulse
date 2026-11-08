@@ -129,6 +129,9 @@ WS   /v1/ws   cliente: {"op":"subscribe","cells":[...]}
 
 Identificação anônima por aparelho (UUID gerado na instalação).
 
+## Roteamento preventivo
+`GET /v1/rotas?origem=lat,lon&destino=lat,lon&modo=pedestre|carro` busca as ocorrências ativas no retângulo da viagem (+1 km), transforma as moderadas ou piores em círculos (150/250/400 m) e pede ao OpenRouteService a rota com `avoid_polygons` e a direta, em paralelo. A resposta traz a rota segura, a direta e as ocorrências evitadas. Cache de 5 min no Redis Cluster; chave do ORS só no servidor ([ADR 0008](adr/0008-roteamento-ors.md)).
+
 ## Observabilidade
 
 - Logs JSON com id de correlação (`client_id` / `event_id`) da API ao WebSocket.

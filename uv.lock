@@ -249,6 +249,7 @@ source = { editable = "services/api" }
 dependencies = [
     { name = "ecopulse-common" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -256,6 +257,7 @@ dependencies = [
 requires-dist = [
     { name = "ecopulse-common", editable = "packages/common" },
     { name = "fastapi", specifier = ">=0.115" },
+    { name = "httpx", specifier = ">=0.28" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32" },
 ]
 

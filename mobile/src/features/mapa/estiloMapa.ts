@@ -12,6 +12,7 @@ export function estiloMapa(esquema: Esquema): MapStyleElement[] {
     { featureType: 'administrative', elementType: 'geometry', stylers: [{ visibility: 'off' }] },
     { elementType: 'geometry', stylers: [{ color: c.land }] },
     { featureType: 'landscape', elementType: 'geometry', stylers: [{ color: c.land }] },
+    { featureType: 'landscape.man_made', elementType: 'geometry', stylers: [{ color: c.building }] },
     { featureType: 'poi.park', elementType: 'geometry', stylers: [{ visibility: 'on' }, { color: c.park }] },
     { featureType: 'water', elementType: 'geometry', stylers: [{ color: c.water }] },
     // Fallback de toda rua: do zoom 17 em diante o Google desenha as ruas como áreas que não

@@ -13,7 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { OfflinePill, Pill, SegmentedFilter } from '@/components';
 import { ROTULO_TIPO, TIPOS_RISCO, type Ocorrencia, type TipoRisco } from '@/domain/tipos';
-import { useLocalizacao } from '@/features/localizacao';
+import { simularPercurso, useLocalizacao } from '@/features/localizacao';
 import { estiloMapa } from '@/features/mapa/estiloMapa';
 import { useConfirmar, useDetalhe, useOcorrencias } from '@/features/ocorrencias';
 import { DestinoMarker } from '@/features/rota/DestinoMarker';
@@ -54,7 +54,7 @@ import { UserMarker } from './UserMarker';
 const JANELA_DESFAZER_MS = 4000;
 
 /** Zoom ao seguir a rota: perto o bastante para ver a próxima esquina. */
-const ZOOM_SEGUINDO = 16.5;
+const ZOOM_SEGUINDO = 17;
 
 /** Ids marcados como "Já passou" nesta sessão (ainda não há endpoint). */
 const RESOLVIDOS = new Set<number>();
@@ -83,6 +83,8 @@ export function TelaMapa() {
   const [resposta, setResposta] = useState<EstadoResposta>(null);
   const [desfazerPendente, setDesfazerPendente] = useState(false);
   const [modoRota, setModoRota] = useState(false);
+  // Câmera acompanha o usuário no "Seguir rota" até ele arrastar o mapa
+  const [cameraSegue, setCameraSegue] = useState(false);
 
   const mapaRef = useRef<MapView>(null);
   const sheetRef = useRef<RefSheet>(null);
@@ -168,6 +170,8 @@ export function TelaMapa() {
   );
 
   const sairRota = useCallback(() => {
+    simularPercurso(null);
+    setCameraSegue(false);
     limparRota();
     indiceAlvo.current = 0;
     setModoRota(false);
@@ -209,6 +213,7 @@ export function TelaMapa() {
     if (localizacao.status !== 'ok') return;
     if (modoRota) {
       // No modo rota só move a câmera: a sheet e a tab bar seguem o estado da rota
+      if (faseRota === 'seguindo') setCameraSegue(true);
       mapaRef.current?.animateCamera(
         { center: localizacao.coords, zoom: ZOOM_SEGUINDO, heading: 0, pitch: 0 },
         { duration: 600 },
@@ -225,7 +230,7 @@ export function TelaMapa() {
       { center: localizacao.coords, zoom: ZOOM_PADRAO, heading: 0, pitch: 0 },
       { duration: 600 },
     );
-  }, [localizacao, modoRota, cancelarTimer, setModoFoco]);
+  }, [localizacao, modoRota, faseRota, cancelarTimer, setModoFoco]);
 
   // "Seguir rota": a sheet desce para o peek e só depois a câmera aproxima do usuário
   // (mexer na câmera durante a troca de mapPadding cancela o zoom no Android)
@@ -233,12 +238,16 @@ export function TelaMapa() {
   const timerSeguir = useRef<ReturnType<typeof setTimeout> | null>(null);
   const seguirRota = useCallback(() => {
     seguirRotaEstado();
+    // Demonstração: com posição simulada, o usuário "anda" pela rota segura
+    if (rota.rota && localizacao.status === 'ok' && localizacao.simulada) {
+      simularPercurso(rota.rota.coordenadas.map(([latitude, longitude]) => ({ latitude, longitude })));
+    }
     if (timerSeguir.current) clearTimeout(timerSeguir.current);
     timerSeguir.current = setTimeout(() => {
       timerSeguir.current = null;
-      recentralizar();
+      setCameraSegue(true);
     }, 450);
-  }, [seguirRotaEstado, recentralizar]);
+  }, [seguirRotaEstado, rota.rota, localizacao]);
   useEffect(
     () => () => {
       if (timerSeguir.current) clearTimeout(timerSeguir.current);
@@ -370,6 +379,17 @@ export function TelaMapa() {
     }
   }, [rota.fase, rota.rota, rota.destino, modoRota, temLocalizacao, localizacao, insets.top]);
 
+  // "Seguir rota": a câmera vai junto com o usuário no zoom de rua. Cada passo já leva o zoom
+  // (uma animação só de centro cancelaria a de zoom); arrastar ou pinçar o mapa para de seguir
+  const posicaoSeguida = localizacao.status === 'ok' ? localizacao.coords : null;
+  useEffect(() => {
+    if (!modoRota || faseRota !== 'seguindo' || !cameraSegue || !posicaoSeguida) return;
+    mapaRef.current?.animateCamera(
+      { center: posicaoSeguida, zoom: ZOOM_SEGUINDO, heading: 0, pitch: 0 },
+      { duration: 900 },
+    );
+  }, [modoRota, faseRota, cameraSegue, posicaoSeguida]);
+
   // Sincroniza o detent quando muda o modo (lista ↔ detalhe ↔ rota).
   useEffect(() => {
     const temporizador = setTimeout(() => {
@@ -410,7 +430,9 @@ export function TelaMapa() {
         showsCompass={false}
         showsMyLocationButton={false}
         zoomControlEnabled={false}
-        showsBuildings={false}
+        // Prédios do zoom 18 em diante (até o 17 o Google desenha só a planta); câmera sempre
+        // de cima, então ficam como blocos na cor building do estilo
+        showsBuildings
         showsPointsOfInterests={false}
         mapPadding={
           modoRota
@@ -426,6 +448,7 @@ export function TelaMapa() {
         }
         onRegionChangeComplete={(regiao) => setBbox(bboxDaRegiao(regiao))}
         onPress={aoPressionarMapa}
+        onPanDrag={cameraSegue ? () => setCameraSegue(false) : undefined}
       >
         <CamadaAmbiental celulas={camadaAmbiente.data ?? []} camada={camada} />
 

@@ -26,21 +26,31 @@ export function lerTrajeto(valor: string | undefined): Coordenada[] {
     .filter((c): c is Coordenada => c !== null);
 }
 
+function trechosDe(pontos: Coordenada[]) {
+  return pontos.slice(1).map((p, i) => {
+    const a = pontos[i]!;
+    const dLat = (p.latitude - a.latitude) * 111_320;
+    const dLon = (p.longitude - a.longitude) * 111_320 * Math.cos((a.latitude * Math.PI) / 180);
+    return { a, b: p, m: Math.hypot(dLat, dLon) };
+  });
+}
+
 /** Posição após percorrer `metros` pelo trajeto (vai e volta, para a demo nunca parar). */
 export function posicaoNoTrajeto(pontos: Coordenada[], metros: number): Coordenada {
   const primeiro = pontos[0];
   if (!primeiro) throw new Error('trajeto vazio');
   if (pontos.length === 1) return primeiro;
   const ida = [...pontos, ...pontos.slice(0, -1).reverse()];
-  const trechos = ida.slice(1).map((p, i) => {
-    const a = ida[i]!;
-    const dLat = (p.latitude - a.latitude) * 111_320;
-    const dLon = (p.longitude - a.longitude) * 111_320 * Math.cos((a.latitude * Math.PI) / 180);
-    return { a, b: p, m: Math.hypot(dLat, dLon) };
-  });
-  const total = trechos.reduce((soma, t) => soma + t.m, 0) || 1;
-  let resto = ((metros % total) + total) % total;
-  for (const t of trechos) {
+  const total = trechosDe(ida).reduce((soma, t) => soma + t.m, 0) || 1;
+  return posicaoNaLinha(ida, ((metros % total) + total) % total);
+}
+
+/** Posição após percorrer `metros` pela linha, só de ida: depois do fim fica no último ponto. */
+export function posicaoNaLinha(pontos: Coordenada[], metros: number): Coordenada {
+  const primeiro = pontos[0];
+  if (!primeiro) throw new Error('linha vazia');
+  let resto = Math.max(0, metros);
+  for (const t of trechosDe(pontos)) {
     if (resto <= t.m) {
       const f = t.m === 0 ? 0 : resto / t.m;
       return {
@@ -50,7 +60,7 @@ export function posicaoNoTrajeto(pontos: Coordenada[], metros: number): Coordena
     }
     resto -= t.m;
   }
-  return primeiro;
+  return pontos[pontos.length - 1]!;
 }
 
 // Demonstração e testes: posição fixa ("lat,lon", ex.: Av. Paulista) ou um trajeto
@@ -58,6 +68,34 @@ export function posicaoNoTrajeto(pontos: Coordenada[], metros: number): Coordena
 const TRAJETO = lerTrajeto(process.env.EXPO_PUBLIC_LOCALIZACAO_SIMULADA);
 const SIMULADA = TRAJETO[0] ?? null;
 const VELOCIDADE_SIMULADA_MS = Number(process.env.EXPO_PUBLIC_VELOCIDADE_SIMULADA) || 15;
+
+/** Há posição simulada (então dá para "andar" pela rota na demonstração). */
+export const LOCALIZACAO_SIMULADA = SIMULADA !== null;
+
+// Percurso da demonstração (ex.: a rota segura): a posição simulada anda por ele e para no fim.
+// Fica no módulo porque Mapa, Agora, alertas e relato leem a mesma posição.
+let percurso: { pontos: Coordenada[]; inicio: number } | null = null;
+let posicaoAtual: Coordenada | null = SIMULADA;
+const ouvintes = new Set<() => void>();
+
+/** Liga (pontos) ou desliga (null) o percurso simulado. Sem posição simulada, não faz nada. */
+export function simularPercurso(pontos: Coordenada[] | null): void {
+  if (!SIMULADA) return;
+  percurso = pontos && pontos.length >= 2 ? { pontos, inicio: Date.now() } : null;
+  ouvintes.forEach((ouvinte) => ouvinte());
+}
+
+function posicaoSimulada(inicioTrajeto: number): Coordenada | null {
+  if (percurso) {
+    const metros = ((Date.now() - percurso.inicio) / 1000) * VELOCIDADE_SIMULADA_MS;
+    posicaoAtual = posicaoNaLinha(percurso.pontos, metros);
+  } else if (TRAJETO.length >= 2) {
+    const metros = ((Date.now() - inicioTrajeto) / 1000) * VELOCIDADE_SIMULADA_MS;
+    posicaoAtual = posicaoNoTrajeto(TRAJETO, metros);
+  }
+  // Sem percurso nem trajeto: fica onde parou (fim da última rota ou o ponto fixo)
+  return posicaoAtual;
+}
 
 /** Posição atual em primeiro plano (permissão "enquanto usa o app"), atualizada a cada ~25 m. */
 export function useLocalizacao(): EstadoLocalizacao {
@@ -70,13 +108,25 @@ export function useLocalizacao(): EstadoLocalizacao {
       // Posição simulada, mas a permissão ainda é pedida: o geocodificador do Android
       // (endereço do detalhe) exige permissão de localização
       void Location.requestForegroundPermissionsAsync();
-      if (TRAJETO.length < 2) return;
       const inicio = Date.now();
-      const timer = setInterval(() => {
-        const metros = ((Date.now() - inicio) / 1000) * VELOCIDADE_SIMULADA_MS;
-        setEstado({ status: 'ok', coords: posicaoNoTrajeto(TRAJETO, metros), precisaoM: 12, simulada: true });
-      }, 1000);
-      return () => clearInterval(timer);
+      const atualizar = () => {
+        const coords = posicaoSimulada(inicio);
+        if (!coords) return;
+        setEstado((atual) =>
+          atual.status === 'ok' &&
+          atual.coords.latitude === coords.latitude &&
+          atual.coords.longitude === coords.longitude
+            ? atual
+            : { status: 'ok', coords, precisaoM: 12, simulada: true },
+        );
+      };
+      atualizar();
+      ouvintes.add(atualizar);
+      const timer = setInterval(atualizar, 1000);
+      return () => {
+        clearInterval(timer);
+        ouvintes.delete(atualizar);
+      };
     }
     let assinatura: Location.LocationSubscription | null = null;
     let ativo = true;

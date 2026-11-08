@@ -52,6 +52,8 @@ export type EstiloMapa = {
   roadMid: string;
   roadMajor: string;
   rail: string;
+  /** Plantas dos prédios (zoom de quarteirão em diante). */
+  building: string;
 };
 
 export const cores: Record<Esquema, Paleta> = {
@@ -195,6 +197,7 @@ export const mapa: Record<Esquema, EstiloMapa> = {
     roadMid: '#313136',
     roadMajor: '#3C3C42',
     rail: '#29292C',
+    building: '#171719',
   },
   claro: {
     land: '#EFEFED',
@@ -205,6 +208,7 @@ export const mapa: Record<Esquema, EstiloMapa> = {
     roadMid: '#FFFFFF',
     roadMajor: '#FFFFFF',
     rail: '#DCDCDA',
+    building: '#E2E2E0',
   },
 };
 

@@ -66,4 +66,4 @@ Cria ocorrências em volta da Av. Paulista pelo caminho real (API → fila → p
 uv run python infra/demo/semear.py --api http://localhost:8000
 ```
 
-No app, `EXPO_PUBLIC_LOCALIZACAO_SIMULADA=-23.5613,-46.6565` no `mobile/.env.local` fixa a posição lá. As ocorrências expiram sozinhas (alagamento em 3 h, calor em 6 h).
+No app, `EXPO_PUBLIC_LOCALIZACAO_SIMULADA=-23.5480,-46.6440` no `mobile/.env.local` fixa a posição lá (fora das zonas de risco). Com a posição simulada, "Seguir rota" faz o usuário andar pela rota segura (`EXPO_PUBLIC_VELOCIDADE_SIMULADA`, padrão 15 m/s). As ocorrências expiram sozinhas (alagamento em 3 h, calor em 6 h).

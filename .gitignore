@@ -31,3 +31,7 @@ Thumbs.db
 # Design (fica só local; o app copia os assets que usa)
 design/
 mobile-design/
+
+# Credenciais (Firebase, Cloudflare): nunca no repositório
+infra/secrets/
+mobile/google-services.json

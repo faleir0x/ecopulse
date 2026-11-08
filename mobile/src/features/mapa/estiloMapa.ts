@@ -14,6 +14,9 @@ export function estiloMapa(esquema: Esquema): MapStyleElement[] {
     { featureType: 'landscape', elementType: 'geometry', stylers: [{ color: c.land }] },
     { featureType: 'poi.park', elementType: 'geometry', stylers: [{ visibility: 'on' }, { color: c.park }] },
     { featureType: 'water', elementType: 'geometry', stylers: [{ color: c.water }] },
+    // Fallback de toda rua: do zoom 17 em diante o Google desenha as ruas como áreas que não
+    // casam com local/arterial/highway e herdavam a cor do chão (mapa "em branco")
+    { featureType: 'road', elementType: 'geometry', stylers: [{ color: c.roadMinor }] },
     { featureType: 'road.local', elementType: 'geometry', stylers: [{ color: c.roadMinor }] },
     { featureType: 'road.arterial', elementType: 'geometry', stylers: [{ color: c.roadMid }] },
     { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: c.roadMajor }] },

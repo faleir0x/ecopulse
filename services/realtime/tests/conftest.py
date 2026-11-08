@@ -44,7 +44,7 @@ async def redis() -> AsyncIterator[RedisCluster]:
 @pytest.fixture
 async def cliente(rabbit: AbstractRobustConnection) -> AsyncIterator[TestClient]:
     channel = await rabbit.channel()
-    fila = await channel.declare_queue(ponte.FILA, durable=True)
+    fila = await channel.declare_queue(ponte.FILA, durable=True, arguments=messaging.QUORUM)
     await fila.purge()
 
     with TestClient(main.app) as client:

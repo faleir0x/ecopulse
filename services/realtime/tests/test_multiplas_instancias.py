@@ -102,7 +102,7 @@ async def _esperar_health(
 @pytest.fixture
 async def instancias(rabbit: AbstractRobustConnection) -> AsyncIterator[tuple[str, str]]:
     canal = await rabbit.channel()
-    fila = await canal.declare_queue(ponte.FILA, durable=True)
+    fila = await canal.declare_queue(ponte.FILA, durable=True, arguments=messaging.QUORUM)
     await fila.purge()
 
     portas = _portas_livres(2)

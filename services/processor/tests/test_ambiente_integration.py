@@ -94,7 +94,7 @@ async def _preparar_fila(
     canal: AbstractChannel,
 ) -> tuple[messaging.Topology, AbstractQueue]:
     topology = await messaging.declare_topology(canal, Settings().partitions)
-    fila = await canal.declare_queue(ambiente.FILA, durable=True)
+    fila = await canal.declare_queue(ambiente.FILA, durable=True, arguments=messaging.QUORUM)
     await fila.purge()
     return topology, fila
 

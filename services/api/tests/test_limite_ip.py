@@ -121,7 +121,10 @@ async def test_endpoint_respeita_balde_do_ip(cliente: TestClient, redis: RedisCl
     corpo = _relato()
     chave_aparelho = limite.chave(corpo["device_id"])
     try:
-        await limite.consumir_ip(redis, ip, capacidade=1, tokens_por_segundo=0.01)
+        # Balde vazio com o "último reabastecimento" 2 min no futuro: não recupera token
+        # durante o teste, por mais que a primeira chamada do TestClient demore
+        segundos, _ = await redis.time()
+        await redis.hset(chave, mapping={"tokens": "0", "ts": str(int(segundos) + 120)})
         resposta = cliente.post("/v1/relatos", json=corpo)
 
         assert resposta.status_code == 429

@@ -20,14 +20,17 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { T } from '@/components';
 import type { MidiaLocal } from '@/data/outbox';
 import type { Severidade, TipoRisco } from '@/domain/tipos';
-import { useLocalizacao } from '@/features/localizacao';
+import { useLocalizacao, type Coordenada } from '@/features/localizacao';
+import { CENTRO_SAO_PAULO } from '@/features/mapa/constantes';
 import { useEndereco } from '@/features/mapa/useEndereco';
 import { Icon } from '@/icons/Icon';
-import { useRelatos } from '@/state/relatos';
+import { useRelatos, type ResultadoRelato } from '@/state/relatos';
 import { useUi } from '@/state/ui';
 import { useTema } from '@/theme/tema';
 import { espaco, movimento, raio, tamanho } from '@/theme/tokens';
 
+import { AjustarPonto } from './AjustarPonto';
+import { FalhaEnvio } from './FalhaEnvio';
 import { MediaViewer } from './MediaViewer';
 import { MAX_MIDIAS } from './MediaPicker';
 import { PassoGravidade } from './PassoGravidade';
@@ -46,17 +49,15 @@ const CURVA_SHEET = Easing.bezier(
 );
 
 type EstadoSucesso = { offline: boolean };
+type EstadoFalha = Exclude<ResultadoRelato, 'enviado'>;
 
 export function ReportSheet() {
   const { cor, reduzirMovimento } = useTema();
   const insets = useSafeAreaInsets();
   const { height: alturaTela } = useWindowDimensions();
   const { relatarAberto, setRelatarAberto } = useUi();
-  const { estado, relatar } = useRelatos();
+  const { estado, relatar, tentarDeNovo } = useRelatos();
   const localizacao = useLocalizacao();
-  const endereco = useEndereco(
-    localizacao.status === 'ok' ? localizacao.coords : null,
-  );
 
   const [passo, setPasso] = useState<1 | 2>(1);
   const [tipo, setTipo] = useState<TipoRisco | null>(null);
@@ -66,7 +67,12 @@ export function ReportSheet() {
   const [notaAberta, setNotaAberta] = useState(false);
   const [visualizando, setVisualizando] = useState<number | null>(null);
   const [sucesso, setSucesso] = useState<EstadoSucesso | null>(null);
+  const [falha, setFalha] = useState<EstadoFalha | null>(null);
+  const [clienteFalha, setClienteFalha] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
+  const [retentando, setRetentando] = useState(false);
+  const [pontoAjustado, setPontoAjustado] = useState<Coordenada | null>(null);
+  const [ajustando, setAjustando] = useState(false);
 
   const progresso = useSharedValue(0);
   const deslocamento = useSharedValue(0);
@@ -74,7 +80,17 @@ export function ReportSheet() {
   const timerAvanco = useRef<ReturnType<typeof setTimeout> | null>(null);
   const timerSucesso = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const temLocalizacao = localizacao.status === 'ok';
+  const coords =
+    pontoAjustado ?? (localizacao.status === 'ok' ? localizacao.coords : null);
+  const endereco = useEndereco(coords);
+  const temLocalizacao = coords !== null;
+  const precisaoM = pontoAjustado
+    ? null
+    : localizacao.status === 'ok'
+      ? localizacao.precisaoM
+      : null;
+  const inicialAjuste =
+    pontoAjustado ?? (localizacao.status === 'ok' ? localizacao.coords : CENTRO_SAO_PAULO);
 
   const limparTimers = useCallback(() => {
     if (timerAvanco.current) {
@@ -96,7 +112,12 @@ export function ReportSheet() {
     setNotaAberta(false);
     setVisualizando(null);
     setSucesso(null);
+    setFalha(null);
+    setClienteFalha(null);
     setEnviando(false);
+    setRetentando(false);
+    setPontoAjustado(null);
+    setAjustando(false);
   }, []);
 
   const fechar = useCallback(() => {
@@ -104,6 +125,18 @@ export function ReportSheet() {
     reporFormulario();
     setRelatarAberto(false);
   }, [limparTimers, reporFormulario, setRelatarAberto]);
+
+  const mostrarSucesso = useCallback(
+    (offline: boolean) => {
+      setSucesso({ offline });
+      if (timerSucesso.current) clearTimeout(timerSucesso.current);
+      timerSucesso.current = setTimeout(() => {
+        timerSucesso.current = null;
+        fechar();
+      }, FECHAR_SUCESSO_MS);
+    },
+    [fechar],
+  );
 
   useEffect(() => {
     if (!relatarAberto) {
@@ -153,33 +186,85 @@ export function ReportSheet() {
     setMidias((atuais) => atuais.filter((_, posicao) => posicao !== indice));
   }, []);
 
-  const enviar = useCallback(() => {
-    if (!tipo || !severidade || localizacao.status !== 'ok') {
+  const enviar = useCallback(async () => {
+    if (!tipo || !severidade || !coords) {
       return;
     }
 
-    const offline = !estado.online;
+    const novo = {
+      tipo,
+      severidade,
+      descricao: nota.trim().length > 0 ? nota.trim() : null,
+      latitude: coords.latitude,
+      longitude: coords.longitude,
+    };
+
+    setFalha(null);
+    setClienteFalha(null);
+
+    if (!estado.online) {
+      // Offline vai para a fila sem esperar: o Sincronizador envia quando a rede voltar
+      void relatar(novo, midias).catch(() => undefined);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
+        () => undefined,
+      );
+      mostrarSucesso(true);
+      return;
+    }
+
     setEnviando(true);
-    relatar(
-      {
-        tipo,
-        severidade,
-        descricao: nota.trim().length > 0 ? nota.trim() : null,
-        latitude: localizacao.coords.latitude,
-        longitude: localizacao.coords.longitude,
-      },
-      midias,
-    );
-    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
-      () => undefined,
-    );
+    const promessa = relatar(novo, midias);
+    const clientId = promessa.clientId;
+    let resultado: ResultadoRelato = 'na_fila';
+    try {
+      resultado = await promessa;
+    } catch {
+      resultado = 'na_fila';
+    }
     setEnviando(false);
-    setSucesso({ offline });
-    timerSucesso.current = setTimeout(() => {
-      timerSucesso.current = null;
-      fechar();
-    }, FECHAR_SUCESSO_MS);
-  }, [tipo, severidade, localizacao, estado.online, relatar, nota, midias, fechar]);
+
+    if (resultado === 'enviado') {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
+        () => undefined,
+      );
+      mostrarSucesso(false);
+      return;
+    }
+
+    setClienteFalha(clientId);
+    setFalha(resultado);
+  }, [
+    tipo,
+    severidade,
+    coords,
+    estado.online,
+    relatar,
+    nota,
+    midias,
+    mostrarSucesso,
+  ]);
+
+  const tentarEnviarDeNovo = useCallback(async () => {
+    if (!clienteFalha) return;
+    setRetentando(true);
+    const resultado = await tentarDeNovo(clienteFalha);
+    setRetentando(false);
+
+    if (resultado === 'enviado') {
+      setFalha(null);
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
+        () => undefined,
+      );
+      mostrarSucesso(false);
+      return;
+    }
+    setFalha(resultado);
+  }, [clienteFalha, tentarDeNovo, mostrarSucesso]);
+
+  const usarPonto = useCallback((ponto: Coordenada) => {
+    setPontoAjustado(ponto);
+    setAjustando(false);
+  }, []);
 
   const podeEnviar = severidade !== null && temLocalizacao && !enviando;
 
@@ -253,61 +338,78 @@ export function ReportSheet() {
             </Pressable>
           </View>
 
-          <ScrollView
-            style={styles.rolagem}
-            contentContainerStyle={styles.rolagemConteudo}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-          >
-            <View
-              style={styles.janela}
-              onLayout={(evento) => {
-                larguraPassos.value = evento.nativeEvent.layout.width;
-              }}
-            >
-              <Animated.View style={[styles.passos, estiloPassos]}>
-                <View
-                  style={styles.passo}
-                  importantForAccessibility={passo === 1 ? 'auto' : 'no-hide-descendants'}
-                  accessibilityElementsHidden={passo !== 1}
-                >
-                  <PassoTipo
-                    tipo={tipo}
-                    onEscolher={escolherTipo}
-                    endereco={endereco}
-                    precisaoM={localizacao.status === 'ok' ? localizacao.precisaoM : null}
-                    semLocalizacao={localizacao.status === 'negada' || localizacao.status === 'indisponivel'}
-                    carregandoLocalizacao={localizacao.status === 'carregando'}
-                  />
-                </View>
-
-                <View
-                  style={styles.passo}
-                  importantForAccessibility={passo === 2 ? 'auto' : 'no-hide-descendants'}
-                  accessibilityElementsHidden={passo !== 2}
-                >
-                  <PassoGravidade
-                    tipo={tipo}
-                    severidade={severidade}
-                    onEscolher={setSeveridade}
-                    onVoltar={() => setPasso(1)}
-                    onEnviar={enviar}
-                    enviando={enviando}
-                    podeEnviar={podeEnviar}
-                    offline={!estado.online}
-                    midias={midias}
-                    nota={nota}
-                    notaAberta={notaAberta}
-                    onToggleNota={() => setNotaAberta((aberta) => !aberta)}
-                    onNota={setNota}
-                    onAdicionarMidias={adicionarMidias}
-                    onRemoverMidia={removerMidia}
-                    onAbrirMidia={setVisualizando}
-                  />
-                </View>
-              </Animated.View>
+          {falha ? (
+            <View style={styles.falha}>
+              <FalhaEnvio
+                tipo={falha}
+                carregando={retentando}
+                onFechar={fechar}
+                onTentarDeNovo={() => void tentarEnviarDeNovo()}
+              />
             </View>
-          </ScrollView>
+          ) : (
+            <ScrollView
+              style={styles.rolagem}
+              contentContainerStyle={styles.rolagemConteudo}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              <View
+                style={styles.janela}
+                onLayout={(evento) => {
+                  larguraPassos.value = evento.nativeEvent.layout.width;
+                }}
+              >
+                <Animated.View style={[styles.passos, estiloPassos]}>
+                  <View
+                    style={styles.passo}
+                    importantForAccessibility={passo === 1 ? 'auto' : 'no-hide-descendants'}
+                    accessibilityElementsHidden={passo !== 1}
+                  >
+                    <PassoTipo
+                      tipo={tipo}
+                      onEscolher={escolherTipo}
+                      onAjustar={() => setAjustando(true)}
+                      endereco={endereco}
+                      precisaoM={precisaoM}
+                      semLocalizacao={
+                        !pontoAjustado &&
+                        (localizacao.status === 'negada' || localizacao.status === 'indisponivel')
+                      }
+                      carregandoLocalizacao={
+                        !pontoAjustado && localizacao.status === 'carregando'
+                      }
+                    />
+                  </View>
+
+                  <View
+                    style={styles.passo}
+                    importantForAccessibility={passo === 2 ? 'auto' : 'no-hide-descendants'}
+                    accessibilityElementsHidden={passo !== 2}
+                  >
+                    <PassoGravidade
+                      tipo={tipo}
+                      severidade={severidade}
+                      onEscolher={setSeveridade}
+                      onVoltar={() => setPasso(1)}
+                      onEnviar={enviar}
+                      enviando={enviando}
+                      podeEnviar={podeEnviar}
+                      offline={!estado.online}
+                      midias={midias}
+                      nota={nota}
+                      notaAberta={notaAberta}
+                      onToggleNota={() => setNotaAberta((aberta) => !aberta)}
+                      onNota={setNota}
+                      onAdicionarMidias={adicionarMidias}
+                      onRemoverMidia={removerMidia}
+                      onAbrirMidia={setVisualizando}
+                    />
+                  </View>
+                </Animated.View>
+              </View>
+            </ScrollView>
+          )}
 
           {sucesso ? <Sucesso offline={sucesso.offline} /> : null}
         </Animated.View>
@@ -317,6 +419,15 @@ export function ReportSheet() {
             midias={midias}
             indiceInicial={visualizando}
             onFechar={() => setVisualizando(null)}
+          />
+        ) : null}
+
+        {ajustando ? (
+          <AjustarPonto
+            inicial={inicialAjuste}
+            tipo={tipo}
+            onCancelar={() => setAjustando(false)}
+            onUsar={usarPonto}
           />
         ) : null}
       </View>
@@ -375,6 +486,11 @@ const styles = StyleSheet.create({
   passos: {
     flexDirection: 'row',
     width: '200%',
+  },
+  falha: {
+    paddingTop: espaco.sm,
+    paddingHorizontal: 20,
+    paddingBottom: 22,
   },
   passo: {
     width: '50%',

@@ -11,16 +11,30 @@ import { MediaPicker } from './MediaPicker';
 import { ReportSheet } from './ReportSheet';
 
 const mockEstado = { online: true, pendentes: 0, enviando: false, ultimoEnvio: null as number | null };
-const mockRelatar = jest.fn(() => 'client-id');
+
+type Resultado = 'enviado' | 'na_fila' | 'rejeitado';
+const mockCriarPromessa = (resultado: Resultado) => {
+  const promessa = Promise.resolve(resultado) as Promise<Resultado> & { clientId: string };
+  promessa.clientId = 'client-id';
+  return promessa;
+};
+const mockRelatar = jest.fn(() => mockCriarPromessa('enviado'));
+const mockTentarDeNovo = jest.fn(async () => 'enviado' as Resultado);
 
 jest.mock('@/state/relatos', () => ({
   useRelatos: () => ({
     estado: mockEstado,
     relatar: mockRelatar,
+    tentarDeNovo: mockTentarDeNovo,
     meus: [],
     encerrar: jest.fn(),
   }),
 }));
+
+jest.mock('react-native-maps', () => {
+  const { View } = jest.requireActual('react-native');
+  return { __esModule: true, PROVIDER_GOOGLE: 'google', default: View };
+});
 
 jest.mock('@/features/localizacao', () => ({
   useLocalizacao: () => ({
@@ -43,7 +57,8 @@ jest.mock('expo-sqlite/kv-store', () => ({
 jest.mock('expo-haptics', () => ({
   notificationAsync: jest.fn(async () => undefined),
   impactAsync: jest.fn(async () => undefined),
-  NotificationFeedbackType: { Success: 'success' },
+  selectionAsync: jest.fn(async () => undefined),
+  NotificationFeedbackType: { Success: 'success', Error: 'error' },
   ImpactFeedbackStyle: { Light: 'light' },
 }));
 
@@ -118,6 +133,7 @@ describe('ReportSheet', () => {
   beforeEach(() => {
     mockEstado.online = true;
     mockRelatar.mockClear();
+    mockTentarDeNovo.mockClear();
   });
 
   it('avança para a gravidade ao escolher o tipo', async () => {
@@ -150,6 +166,34 @@ describe('ReportSheet', () => {
     await avancarParaGravidade(utilitarios);
 
     expect(utilitarios.getByText('Salvar na fila')).toBeTruthy();
+  });
+
+  it('mostra o sucesso na fila ao enviar offline', async () => {
+    mockEstado.online = false;
+    const utilitarios = await montarRelato();
+    await avancarParaGravidade(utilitarios);
+
+    await fireEvent.press(utilitarios.getByLabelText('Crítico'));
+    await fireEvent.press(utilitarios.getByLabelText('Salvar na fila'));
+
+    expect(await utilitarios.findByText('Na fila')).toBeTruthy();
+    expect(mockRelatar).toHaveBeenCalledTimes(1);
+  });
+
+  it('mostra a falha quando o servidor não aceita e tenta de novo', async () => {
+    mockRelatar.mockReturnValueOnce(mockCriarPromessa('na_fila'));
+    mockTentarDeNovo.mockResolvedValueOnce('na_fila');
+    const utilitarios = await montarRelato();
+    await avancarParaGravidade(utilitarios);
+
+    await fireEvent.press(utilitarios.getByLabelText('Crítico'));
+    await fireEvent.press(utilitarios.getByLabelText('Enviar'));
+
+    expect(await utilitarios.findByText('Não enviado')).toBeTruthy();
+    expect(utilitarios.getByText('Fica na fila e sai sozinho')).toBeTruthy();
+
+    await fireEvent.press(utilitarios.getByLabelText('Tentar de novo'));
+    expect(mockTentarDeNovo).toHaveBeenCalledWith('client-id');
   });
 
   it('mostra a dica do tipo e nível escolhidos', async () => {

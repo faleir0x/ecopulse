@@ -1,6 +1,6 @@
 import { Pressable, StyleSheet, View } from 'react-native';
 
-import { T } from '@/components';
+import { Pill, T } from '@/components';
 import { ROTULO_TIPO, TIPOS_RISCO, type TipoRisco } from '@/domain/tipos';
 import { ICONE_TIPO } from '@/features/mapa/iconesTipo';
 import { Icon } from '@/icons/Icon';
@@ -45,6 +45,7 @@ function TileTipo({ tipo, ativo, onPress }: TileProps) {
 export type PassoTipoProps = {
   tipo: TipoRisco | null;
   onEscolher: (tipo: TipoRisco) => void;
+  onAjustar: () => void;
   endereco: string | null;
   precisaoM: number | null;
   semLocalizacao: boolean;
@@ -54,6 +55,7 @@ export type PassoTipoProps = {
 export function PassoTipo({
   tipo,
   onEscolher,
+  onAjustar,
   endereco,
   precisaoM,
   semLocalizacao,
@@ -84,21 +86,24 @@ export function PassoTipo({
         ))}
       </View>
 
-      <View style={[styles.local, { backgroundColor: cor.surfaceMuted }]}>
-        <Icon name="map-point" tamanho={20} cor={cor.textSecondary} />
-        <T
-          estilo="body"
-          cor={semLocalizacao ? 'textTertiary' : 'textPrimary'}
-          numberOfLines={1}
-          style={styles.endereco}
-        >
-          {textoLocal}
-        </T>
-        {!semLocalizacao && endereco && precisaoM !== null ? (
-          <T estilo="caption" cor="textTertiary" tabular numberOfLines={1}>
-            {`· ±${Math.round(precisaoM)} m`}
+      <View style={styles.localLinha}>
+        <View style={[styles.local, { backgroundColor: cor.surfaceMuted }]}>
+          <Icon name="map-point" tamanho={20} cor={cor.textSecondary} />
+          <T
+            estilo="body"
+            cor={semLocalizacao ? 'textTertiary' : 'textPrimary'}
+            numberOfLines={1}
+            style={styles.endereco}
+          >
+            {textoLocal}
           </T>
-        ) : null}
+          {!semLocalizacao && endereco && precisaoM !== null ? (
+            <T estilo="caption" cor="textTertiary" tabular numberOfLines={1}>
+              {`· ±${Math.round(precisaoM)} m`}
+            </T>
+          ) : null}
+        </View>
+        <Pill rotulo="Ajustar" icone="map-point" onPress={onAjustar} />
       </View>
     </View>
   );
@@ -130,7 +135,14 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     maxWidth: '100%',
   },
+  localLinha: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: espaco.sm,
+  },
   local: {
+    flex: 1,
+    minWidth: 0,
     height: 48,
     paddingHorizontal: 14,
     borderRadius: raio.chip,

@@ -15,15 +15,22 @@ import { Sincronizador, type EstadoSync } from '@/data/sincronizacao';
 
 export type NovoRelato = Omit<RelatoEnvio, 'client_id' | 'device_id' | 'registrado_em'>;
 
+export type ResultadoRelato = 'enviado' | 'na_fila' | 'rejeitado';
+
+/** Resolve com o resultado da 1ª tentativa e carrega o client_id para o "Tentar de novo". */
+export type EnvioRelato = Promise<ResultadoRelato> & { clientId: string };
+
 type Relatos = {
   estado: EstadoSync;
-  /** Grava na outbox e dispara a sincronização. Devolve o client_id. */
-  relatar: (relato: NovoRelato, midias: outbox.MidiaLocal[]) => string;
+  /** Grava na outbox e resolve com o resultado da primeira sincronização (sem esperar offline). */
+  relatar: (relato: NovoRelato, midias: outbox.MidiaLocal[]) => EnvioRelato;
   /** Relatos do aparelho (Meus relatos e marcadores pendentes no mapa). */
   meus: outbox.RelatoLocal[];
   encerrar: (clientId: string) => void;
   /** Tenta enviar a fila agora (ex.: o WebSocket reconectou: o servidor voltou). */
   sincronizarAgora: () => void;
+  /** Nova tentativa só daquele relato, ignorando o backoff agendado. */
+  tentarDeNovo: (clientId: string) => Promise<ResultadoRelato>;
 };
 
 const ESTADO_INICIAL: EstadoSync = { online: true, pendentes: 0, enviando: false, ultimoEnvio: null };
@@ -33,6 +40,13 @@ const RelatosContext = createContext<Relatos | null>(null);
 export function paraEnvio(relato: outbox.RelatoLocal): RelatoEnvio {
   const { client_id, device_id, tipo, severidade, descricao, latitude, longitude, registrado_em } = relato;
   return { client_id, device_id, tipo, severidade, descricao, latitude, longitude, registrado_em };
+}
+
+function resultadoNaOutbox(db: ReturnType<typeof abrirBanco>, clientId: string): ResultadoRelato {
+  const relato = outbox.meusRelatos(db).find((item) => item.client_id === clientId);
+  if (relato?.status === 'enviado') return 'enviado';
+  if (relato?.status === 'rejeitado') return 'rejeitado';
+  return 'na_fila';
 }
 
 export function RelatosProvider({ children }: { children: ReactNode }) {
@@ -73,6 +87,22 @@ export function RelatosProvider({ children }: { children: ReactNode }) {
     };
   }, [sincronizador, db, clienteQuery]);
 
+  const tentarEnvio = useCallback(
+    async (clientId: string): Promise<ResultadoRelato> => {
+      await sincronizador.sincronizarAgora();
+      // Uma rodada que já estava em andamento devolve a própria promessa sem incluir este
+      // relato: se ele ainda não teve tentativa, roda mais uma vez antes de responder
+      const local = outbox.meusRelatos(db).find((item) => item.client_id === clientId);
+      if (local?.status === 'pendente' && local.tentativas === 0) {
+        await sincronizador.sincronizarAgora();
+      }
+      setMeus(outbox.meusRelatos(db));
+      setEstado(sincronizador.estado());
+      return resultadoNaOutbox(db, clientId);
+    },
+    [db, sincronizador],
+  );
+
   const relatar = useCallback(
     (relato: NovoRelato, midias: outbox.MidiaLocal[]) => {
       const clientId = randomUUID();
@@ -84,10 +114,23 @@ export function RelatosProvider({ children }: { children: ReactNode }) {
       );
       setMeus(outbox.meusRelatos(db));
       setEstado(sincronizador.estado());
-      void sincronizador.sincronizarAgora();
-      return clientId;
+      const promessa = tentarEnvio(clientId) as EnvioRelato;
+      promessa.clientId = clientId;
+      return promessa;
     },
-    [db, sincronizador],
+    [db, sincronizador, tentarEnvio],
+  );
+
+  const tentarDeNovo = useCallback(
+    async (clientId: string): Promise<ResultadoRelato> => {
+      // "Tentar de novo" é um pedido explícito: não espera o backoff agendado.
+      db.runSync(
+        `UPDATE relatos SET proxima_tentativa_em = NULL WHERE client_id = ? AND status = 'pendente'`,
+        [clientId],
+      );
+      return tentarEnvio(clientId);
+    },
+    [db, tentarEnvio],
   );
 
   const encerrar = useCallback(
@@ -103,8 +146,8 @@ export function RelatosProvider({ children }: { children: ReactNode }) {
   }, [sincronizador]);
 
   const valor = useMemo(
-    () => ({ estado, relatar, meus, encerrar, sincronizarAgora }),
-    [estado, relatar, meus, encerrar, sincronizarAgora],
+    () => ({ estado, relatar, meus, encerrar, sincronizarAgora, tentarDeNovo }),
+    [estado, relatar, meus, encerrar, sincronizarAgora, tentarDeNovo],
   );
   return <RelatosContext.Provider value={valor}>{children}</RelatosContext.Provider>;
 }

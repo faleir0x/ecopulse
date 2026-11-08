@@ -66,7 +66,7 @@ Conferência com o texto da APS (seções II–V) mostrou lacunas; a proposta pe
 - [x] Diálogos nativos do relato trocados por opções dentro da sheet
 - [x] Canal de notificação Android "Alertas de risco" (prioridade alta, ações "Ver no mapa" e "Silenciar 1 h")
 - [x] "Já passou" no servidor (uma marca por aparelho; encerra com min(3, confirmações)) e puxar para atualizar
-- [ ] Prancha de design dos estados não desenhados (§13 do handoff) e implementação — prancha aprovada; falta: sem localização + busca, ajustar ponto, falha de envio, notificações desligadas, ocorrência encerrada, agrupamento
+- [x] Prancha de design dos estados não desenhados (§13 do handoff) e implementação: sem localização + busca de bairro (`GET /v1/locais`), ajustar ponto, falha de envio, notificações desligadas, ocorrência encerrada, agrupamento
 - [x] Cloudflare Tunnel (api/rt.faleir0x.com, perfil `tunel`) com IP real via CF-Connecting-IP só vindo do túnel
 
 ## Fase 6: Entrega

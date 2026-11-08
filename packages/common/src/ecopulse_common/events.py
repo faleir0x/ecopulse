@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 class EventType(StrEnum):
     RELATO_RECEBIDO = "relato.recebido"
+    RESOLUCAO_RECEBIDA = "resolucao.recebida"
     OCORRENCIA_CRIADA = "ocorrencia.criada"
     OCORRENCIA_ATUALIZADA = "ocorrencia.atualizada"
     OCORRENCIA_EXPIRADA = "ocorrencia.expirada"
@@ -54,6 +55,15 @@ class RelatoRecebido(BaseModel):
     registrado_em: datetime  # horário no aparelho (pode ser antigo, se veio da outbox offline)
 
 
+class ResolucaoRecebida(BaseModel):
+    """Payload de `resolucao.recebida`."""
+
+    client_id: UUID
+    device_id: UUID
+    ocorrencia_id: int
+    registrado_em: datetime
+
+
 class StatusOcorrencia(StrEnum):
     ATIVA = "ativa"
     EXPIRADA = "expirada"
@@ -73,6 +83,8 @@ class OcorrenciaPayload(BaseModel):
     criada_em: datetime
     atualizada_em: datetime
     expira_em: datetime
+    resolucoes: int = 0
+    encerrada_em: datetime | None = None
 
 
 class HoraPrevista(BaseModel):

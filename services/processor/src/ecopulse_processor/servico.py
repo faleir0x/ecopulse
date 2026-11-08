@@ -7,7 +7,13 @@ from pydantic import ValidationError
 
 from ecopulse_common import geohash
 from ecopulse_common.consumer import PermanentError
-from ecopulse_common.events import Envelope, EventType, RelatoRecebido
+from ecopulse_common.events import (
+    Envelope,
+    EventType,
+    RelatoRecebido,
+    ResolucaoRecebida,
+    StatusOcorrencia,
+)
 from ecopulse_processor import regras, repositorio
 
 log = logging.getLogger(__name__)
@@ -78,6 +84,74 @@ async def processar_relato(pool: asyncpg.Pool, envelope: Envelope) -> None:
         asyncpg.exceptions.DataError,
     ) as exc:
         raise PermanentError(f"relato rejeitado pelo banco: {exc}") from exc
+
+
+async def processar_resolucao(pool: asyncpg.Pool, envelope: Envelope) -> None:
+    """Handler de `resolucao.recebida` (idempotente).
+
+    Uma transação: trava a ocorrência; se não existe ou não está ativa, ignora. Insere a
+    resolução (ON CONFLICT DO NOTHING cobre reenvio e o mesmo aparelho votando de novo).
+    Se as resoluções chegarem a `regras.resolucoes_para_encerrar(confirmacoes)`, encerra a
+    ocorrência e enfileira OCORRENCIA_EXPIRADA; senão, OCORRENCIA_ATUALIZADA.
+    """
+    try:
+        resolucao = ResolucaoRecebida.model_validate(envelope.payload)
+    except ValidationError as exc:
+        raise PermanentError(f"payload de resolução inválido: {exc}") from exc
+
+    try:
+        async with pool.acquire() as conn, conn.transaction():
+            ocorrencia = await repositorio.travar_ocorrencia(conn, resolucao.ocorrencia_id)
+            if ocorrencia is None:
+                log.info(
+                    "resolução para ocorrência inexistente ignorada",
+                    extra={"event_id": str(envelope.event_id)},
+                )
+                return
+            if ocorrencia.status is not StatusOcorrencia.ATIVA:
+                log.info(
+                    "resolução para ocorrência encerrada ignorada",
+                    extra={
+                        "event_id": str(envelope.event_id),
+                        "ocorrencia_id": ocorrencia.id,
+                    },
+                )
+                return
+
+            resolucao_id = await repositorio.inserir_resolucao(conn, resolucao)
+            if resolucao_id is None:
+                log.info(
+                    "resolução duplicada ignorada",
+                    extra={
+                        "event_id": str(envelope.event_id),
+                        "client_id": str(resolucao.client_id),
+                    },
+                )
+                return
+
+            encerrar = ocorrencia.resolucoes + 1 >= regras.resolucoes_para_encerrar(
+                ocorrencia.confirmacoes
+            )
+            atualizada = await repositorio.registrar_resolucao(
+                conn, ocorrencia.id, encerrar=encerrar
+            )
+            await repositorio.enfileirar_evento(
+                conn,
+                Envelope(
+                    type=(
+                        EventType.OCORRENCIA_EXPIRADA
+                        if encerrar
+                        else EventType.OCORRENCIA_ATUALIZADA
+                    ),
+                    geohash=atualizada.geohash,
+                    payload=atualizada.model_dump(mode="json"),
+                ),
+            )
+    except (
+        asyncpg.exceptions.IntegrityConstraintViolationError,
+        asyncpg.exceptions.DataError,
+    ) as exc:
+        raise PermanentError(f"resolução rejeitada pelo banco: {exc}") from exc
 
 
 async def expirar_ocorrencias(pool: asyncpg.Pool) -> int:

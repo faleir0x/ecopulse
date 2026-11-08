@@ -31,6 +31,14 @@ class ConfirmacaoIn(BaseModel):
     registrado_em: datetime
 
 
+class ResolucaoIn(BaseModel):
+    """Marcação de "já passou" de uma ocorrência existente."""
+
+    client_id: UUID
+    device_id: UUID
+    registrado_em: datetime
+
+
 class SituacaoRelato(BaseModel):
     """Em qual ocorrência o relato do próprio aparelho entrou. Nunca expõe o device_id."""
 

@@ -131,3 +131,46 @@ async def test_endpoint_respeita_balde_do_ip(cliente: TestClient, redis: RedisCl
         assert int(resposta.headers["retry-after"]) >= 1
     finally:
         await redis.delete(chave, chave_aparelho)
+
+
+def _post_com_cabecalhos(
+    monkeypatch: pytest.MonkeyPatch, proxies: frozenset[str], cabecalhos: dict[str, str]
+) -> list[str]:
+    """Faz um POST de relato e devolve as chaves de balde consultadas."""
+
+    async def fake_publish(*_: Any, **__: Any) -> None:
+        return None
+
+    monkeypatch.setattr(messaging, "publish", fake_publish)
+    redis = RedisSoIpEsgotado()
+    main.app.state.broker = MagicMock()
+    main.app.state.redis = redis
+    main.app.state.proxies = proxies
+    try:
+        TestClient(main.app).post("/v1/relatos", json=_relato(), headers=cabecalhos)
+    finally:
+        main.app.state.proxies = frozenset()
+    return redis.chaves
+
+
+def test_cf_connecting_ip_vale_quando_vem_do_tunel(monkeypatch: pytest.MonkeyPatch) -> None:
+    chaves = _post_com_cabecalhos(
+        monkeypatch, frozenset({"testclient"}), {"CF-Connecting-IP": "203.0.113.5"}
+    )
+
+    assert "rl:ip:{203.0.113.5}" in chaves
+
+
+def test_cf_connecting_ip_ignorado_fora_do_tunel(monkeypatch: pytest.MonkeyPatch) -> None:
+    chaves = _post_com_cabecalhos(monkeypatch, frozenset(), {"CF-Connecting-IP": "203.0.113.5"})
+
+    assert "rl:ip:{testclient}" in chaves
+    assert all("203.0.113.5" not in chave for chave in chaves)
+
+
+def test_cf_connecting_ip_invalido_usa_o_ip_da_conexao(monkeypatch: pytest.MonkeyPatch) -> None:
+    chaves = _post_com_cabecalhos(
+        monkeypatch, frozenset({"testclient"}), {"CF-Connecting-IP": "nao-e-ip"}
+    )
+
+    assert "rl:ip:{testclient}" in chaves

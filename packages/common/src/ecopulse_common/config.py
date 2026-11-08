@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     # OpenRouteService: a chave fica só no servidor (nunca vai ao app)
     ors_api_key: str = ""
     ors_url: str = "https://api.openrouteservice.org"
+    # IPs (vírgula) de proxies confiáveis: só deles a API aceita CF-Connecting-IP (túnel)
+    proxies_confiaveis: str = ""
     # environment: "open-meteo" (real) ou "simulador" (demo offline / onda de calor)
     ambiente_fonte: str = "open-meteo"
     ambiente_intervalo_s: int = 600

@@ -9,7 +9,13 @@ from datetime import timedelta
 
 import asyncpg
 
-from ecopulse_common.events import Envelope, OcorrenciaPayload, RelatoRecebido, Severidade
+from ecopulse_common.events import (
+    Envelope,
+    OcorrenciaPayload,
+    RelatoRecebido,
+    ResolucaoRecebida,
+    Severidade,
+)
 from ecopulse_processor import regras
 
 
@@ -26,6 +32,8 @@ def _ocorrencia_da_linha(linha: asyncpg.Record) -> OcorrenciaPayload:
         criada_em=linha["criada_em"],
         atualizada_em=linha["atualizada_em"],
         expira_em=linha["expira_em"],
+        resolucoes=linha["resolucoes"],
+        encerrada_em=linha["encerrada_em"],
     )
 
 
@@ -113,7 +121,8 @@ async def criar_ocorrencia(
             id, tipo, severidade,
             ST_Y(geom::geometry) AS latitude,
             ST_X(geom::geometry) AS longitude,
-            geohash, confirmacoes, status, criada_em, atualizada_em, expira_em
+            geohash, confirmacoes, status, criada_em, atualizada_em, expira_em,
+            resolucoes, encerrada_em
         """,
         relato.tipo.value,
         relato.severidade.value,
@@ -152,7 +161,8 @@ async def confirmar_ocorrencia(
             id, tipo, severidade,
             ST_Y(geom::geometry) AS latitude,
             ST_X(geom::geometry) AS longitude,
-            geohash, confirmacoes, status, criada_em, atualizada_em, expira_em
+            geohash, confirmacoes, status, criada_em, atualizada_em, expira_em,
+            resolucoes, encerrada_em
         """,
         ocorrencia_id,
         severidade.value,
@@ -172,6 +182,74 @@ async def vincular_relato(conn: asyncpg.Connection, relato_id: int, ocorrencia_i
     )
 
 
+async def travar_ocorrencia(
+    conn: asyncpg.Connection, ocorrencia_id: int
+) -> OcorrenciaPayload | None:
+    """SELECT ... FOR UPDATE da ocorrência (qualquer status). None se não existe."""
+    linha = await conn.fetchrow(
+        """
+        SELECT
+            id, tipo, severidade,
+            ST_Y(geom::geometry) AS latitude,
+            ST_X(geom::geometry) AS longitude,
+            geohash, confirmacoes, status, criada_em, atualizada_em, expira_em,
+            resolucoes, encerrada_em
+        FROM ocorrencias
+        WHERE id = $1
+        FOR UPDATE
+        """,
+        ocorrencia_id,
+    )
+    return _ocorrencia_da_linha(linha) if linha is not None else None
+
+
+async def inserir_resolucao(conn: asyncpg.Connection, resolucao: ResolucaoRecebida) -> int | None:
+    """INSERT ... ON CONFLICT DO NOTHING RETURNING id. None cobre client_id repetido e o
+    mesmo aparelho votando de novo na mesma ocorrência."""
+    resultado = await conn.fetchval(
+        """
+        INSERT INTO resolucoes (client_id, device_id, ocorrencia_id, registrado_em)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT DO NOTHING
+        RETURNING id
+        """,
+        resolucao.client_id,
+        resolucao.device_id,
+        resolucao.ocorrencia_id,
+        resolucao.registrado_em,
+    )
+    return int(resultado) if resultado is not None else None
+
+
+async def registrar_resolucao(
+    conn: asyncpg.Connection, ocorrencia_id: int, *, encerrar: bool
+) -> OcorrenciaPayload:
+    """resolucoes + 1 e atualizada_em = now(); se encerrar, também status='expirada',
+    encerrada_em = now() e expira_em = now(). Retorna o estado novo."""
+    linha = await conn.fetchrow(
+        """
+        UPDATE ocorrencias
+        SET resolucoes = resolucoes + 1,
+            atualizada_em = now(),
+            status = CASE WHEN $2 THEN 'expirada' ELSE status END,
+            encerrada_em = CASE WHEN $2 THEN now() ELSE encerrada_em END,
+            expira_em = CASE WHEN $2 THEN now() ELSE expira_em END
+        WHERE id = $1
+        RETURNING
+            id, tipo, severidade,
+            ST_Y(geom::geometry) AS latitude,
+            ST_X(geom::geometry) AS longitude,
+            geohash, confirmacoes, status, criada_em, atualizada_em, expira_em,
+            resolucoes, encerrada_em
+        """,
+        ocorrencia_id,
+        encerrar,
+    )
+    if linha is None:
+        raise RuntimeError("UPDATE de resolução não retornou linha")
+    return _ocorrencia_da_linha(linha)
+
+
 async def enfileirar_evento(conn: asyncpg.Connection, envelope: Envelope) -> None:
     """INSERT na outbox: event_id, routing_key = envelope.type,
     envelope = model_dump(mode='json')."""
@@ -184,18 +262,19 @@ async def enfileirar_evento(conn: asyncpg.Connection, envelope: Envelope) -> Non
 
 
 async def expirar_vencidas(conn: asyncpg.Connection) -> list[OcorrenciaPayload]:
-    """UPDATE status='expirada', atualizada_em=now() WHERE status='ativa' AND expira_em <= now()
-    RETURNING o estado novo de cada uma."""
+    """UPDATE status='expirada', atualizada_em=now(), encerrada_em=expira_em
+    WHERE status='ativa' AND expira_em <= now() RETURNING o estado novo de cada uma."""
     linhas = await conn.fetch(
         """
         UPDATE ocorrencias
-        SET status = 'expirada', atualizada_em = now()
+        SET status = 'expirada', atualizada_em = now(), encerrada_em = expira_em
         WHERE status = 'ativa' AND expira_em <= now()
         RETURNING
             id, tipo, severidade,
             ST_Y(geom::geometry) AS latitude,
             ST_X(geom::geometry) AS longitude,
-            geohash, confirmacoes, status, criada_em, atualizada_em, expira_em
+            geohash, confirmacoes, status, criada_em, atualizada_em, expira_em,
+            resolucoes, encerrada_em
         """
     )
     return [_ocorrencia_da_linha(linha) for linha in linhas]

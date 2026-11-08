@@ -75,6 +75,7 @@ Exchange topic `ecopulse.events`. Envelope: `event_id, type, version, occurred_a
 | Evento | Produtor | Consumidores |
 |---|---|---|
 | `relato.recebido` | api | processor |
+| `resolucao.recebida` | api | processor |
 | `ocorrencia.criada` / `.atualizada` / `.expirada` | processor (outbox) | realtime, invalidação de cache |
 | `leitura.ambiente` | environment | processor |
 
@@ -122,6 +123,7 @@ POST /v1/relatos                         → 202 {client_id}
 GET  /v1/ocorrencias?bbox=&tipo=
 GET  /v1/ocorrencias/{id}
 POST /v1/ocorrencias/{id}/confirmacoes   → 202
+POST /v1/ocorrencias/{id}/resolucoes     → 202
 GET  /v1/ambiente?bbox=
 WS   /v1/ws   cliente: {"op":"subscribe","cells":[...]}
               servidor: {"type":"ocorrencia.atualizada", ...}

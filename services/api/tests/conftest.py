@@ -13,7 +13,9 @@ from ecopulse_common.db import create_pool
 
 async def _limpar_banco(pool: asyncpg.Pool) -> None:
     async with pool.acquire() as conn:
-        await conn.execute("TRUNCATE outbox, relatos, ocorrencias RESTART IDENTITY CASCADE")
+        await conn.execute(
+            "TRUNCATE outbox, resolucoes, relatos, ocorrencias RESTART IDENTITY CASCADE"
+        )
 
 
 async def _limpar_cache(redis: RedisCluster) -> None:

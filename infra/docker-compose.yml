@@ -222,6 +222,7 @@ services:
       <<: *python-env
       # chave do OpenRouteService só no servidor (nunca vai ao app)
       ECOPULSE_ORS_API_KEY: ${ORS_API_KEY:-}
+      ECOPULSE_PROXIES_CONFIAVEIS: 10.89.70.250
     healthcheck:
       # python em vez de curl: a imagem slim não tem curl
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=2)"]
@@ -277,7 +278,8 @@ services:
     profiles: [tunel]
     environment:
       TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
-    networks: [ecopulse]
+    # IP fixo: a API só confia no CF-Connecting-IP vindo daqui
+    networks: { ecopulse: { ipv4_address: 10.89.70.250 } }
     restart: unless-stopped
     depends_on:
       api: { condition: service_healthy }

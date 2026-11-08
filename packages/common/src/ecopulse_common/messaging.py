@@ -121,6 +121,7 @@ async def declare_topology(channel: AbstractChannel, partitions: int) -> Topolog
         nomes_particoes.append(nome)
 
     await relatos.bind(events, routing_key="relato.recebido")
+    await relatos.bind(events, routing_key="resolucao.recebida")
 
     return Topology(
         events=events,

@@ -3,7 +3,7 @@
 - configure_logging("processor"), pool do banco, conexão RabbitMQ
 - canal com publisher_confirms=True e set_qos(prefetch_count=20)
 - declare_topology(settings.partitions) e consume() em TODAS as filas-partição com
-  handler = processar_relato
+  handler que despacha relato.recebido e resolucao.recebida
 - tarefa em paralelo: a cada regras.INTERVALO_EXPIRACAO_S chama expirar_ocorrencias
   (loga e continua em caso de erro)
 - SIGTERM/SIGINT: para de consumir, cancela a tarefa, fecha conexão e pool
@@ -19,14 +19,28 @@ import asyncpg
 
 from ecopulse_common import messaging
 from ecopulse_common.config import Settings
-from ecopulse_common.consumer import consume
+from ecopulse_common.consumer import PermanentError, consume
 from ecopulse_common.db import create_pool
-from ecopulse_common.events import Envelope
+from ecopulse_common.events import Envelope, EventType
 from ecopulse_common.logs import configure_logging
 from ecopulse_processor import ambiente, regras, relay
-from ecopulse_processor.servico import expirar_ocorrencias, processar_relato
+from ecopulse_processor.servico import (
+    expirar_ocorrencias,
+    processar_relato,
+    processar_resolucao,
+)
 
 log = logging.getLogger(__name__)
+
+
+async def despachar(pool: asyncpg.Pool, envelope: Envelope) -> None:
+    """Despacha pelo tipo do envelope. Tipo desconhecido → PermanentError (vai para a DLQ)."""
+    if envelope.type is EventType.RELATO_RECEBIDO:
+        await processar_relato(pool, envelope)
+    elif envelope.type is EventType.RESOLUCAO_RECEBIDA:
+        await processar_resolucao(pool, envelope)
+    else:
+        raise PermanentError(f"evento não suportado no processor: {envelope.type}")
 
 
 async def _expirar_periodicamente(pool: asyncpg.Pool, parar: asyncio.Event) -> None:
@@ -62,7 +76,7 @@ async def main() -> None:
     await ambiente.iniciar(canal_ambiente, topology.events, pool)
 
     async def _handler(envelope: Envelope) -> None:
-        await processar_relato(pool, envelope)
+        await despachar(pool, envelope)
 
     for nome in topology.partition_queues:
         fila = await channel.get_queue(nome)

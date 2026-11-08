@@ -1,3 +1,4 @@
+import ipaddress
 import logging
 import time
 from collections.abc import AsyncIterator
@@ -22,6 +23,7 @@ from ecopulse_api.schemas import (
     OcorrenciaDetalhe,
     RelatoAceito,
     RelatoIn,
+    ResolucaoIn,
     RotaSegura,
     SituacaoRelato,
 )
@@ -36,6 +38,7 @@ from ecopulse_common.events import (
     LeituraAmbiente,
     OcorrenciaPayload,
     RelatoRecebido,
+    ResolucaoRecebida,
     StatusOcorrencia,
     TipoRisco,
 )
@@ -65,6 +68,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.broker = Broker(connection, topology)
     app.state.pool = pool
     app.state.redis = redis
+    app.state.proxies = frozenset(
+        ip.strip() for ip in settings.proxies_confiaveis.split(",") if ip.strip()
+    )
     yield
     await connection.close()
     await redis.aclose()
@@ -100,17 +106,52 @@ def _exigir_limite(resultado: limite.Resultado, mensagem: str, contexto: dict[st
         )
 
 
+def _ip_cliente(request: Request) -> str:
+    """IP de origem. CF-Connecting-IP só vale quando a conexão vem de um proxy confiável (o
+    túnel da Cloudflare); de qualquer outro lugar é ignorado, então não dá para forjar o IP."""
+    direto = request.client.host if request.client is not None else "desconhecido"
+    proxies: frozenset[str] = getattr(request.app.state, "proxies", frozenset())
+    if direto in proxies:
+        cabecalho = request.headers.get("cf-connecting-ip", "").strip()
+        try:
+            return str(ipaddress.ip_address(cabecalho))
+        except ValueError:
+            pass
+    return direto
+
+
 async def _aplicar_limite(request: Request, device_id: UUID) -> None:
-    """Limita pelo aparelho e pelo IP de origem (request.client.host, sem X-Forwarded-For)."""
+    """Limita pelo aparelho e pelo IP de origem (ver _ip_cliente; X-Forwarded-For é ignorado)."""
     resultado_aparelho = await limite.consumir(_redis(request), device_id)
     _exigir_limite(
         resultado_aparelho,
         "muitos relatos deste aparelho",
         {"device_id": str(device_id)},
     )
-    ip = request.client.host if request.client is not None else "desconhecido"
+    ip = _ip_cliente(request)
     resultado_ip = await limite.consumir_ip(_redis(request), ip)
     _exigir_limite(resultado_ip, "muitos relatos deste IP", {"ip": ip})
+
+
+async def _publicar_evento(
+    request: Request,
+    envelope: Envelope,
+    *,
+    falha: str,
+    aceito: str,
+    contexto: dict[str, str],
+) -> None:
+    """Publica no exchange de eventos. Broker fora → 503 (o app mantém na outbox e tenta)."""
+    try:
+        await messaging.publish(_broker(request).topology.events, envelope)
+    except (AMQPError, ConnectionError) as exc:
+        log.error(falha, extra=contexto)
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "broker indisponível",
+            headers={"Retry-After": "5"},
+        ) from exc
+    log.info(aceito, extra=contexto)
 
 
 async def _publicar_relato(request: Request, relato: RelatoRecebido) -> None:
@@ -122,16 +163,32 @@ async def _publicar_relato(request: Request, relato: RelatoRecebido) -> None:
         geohash=geohash.encode(relato.latitude, relato.longitude, geohash.CELL_PRECISION),
         payload=relato.model_dump(mode="json"),
     )
-    try:
-        await messaging.publish(_broker(request).topology.events, envelope)
-    except (AMQPError, ConnectionError) as exc:
-        log.error("falha ao publicar relato", extra={"client_id": str(relato.client_id)})
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "broker indisponível",
-            headers={"Retry-After": "5"},
-        ) from exc
-    log.info("relato aceito", extra={"client_id": str(relato.client_id)})
+    await _publicar_evento(
+        request,
+        envelope,
+        falha="falha ao publicar relato",
+        aceito="relato aceito",
+        contexto={"client_id": str(relato.client_id)},
+    )
+
+
+async def _publicar_resolucao(
+    request: Request, ocorrencia: OcorrenciaPayload, resolucao: ResolucaoRecebida
+) -> None:
+    """Publica `resolucao.recebida` na mesma partição dos relatos da área da ocorrência."""
+    envelope = Envelope(
+        event_id=resolucao.client_id,
+        type=EventType.RESOLUCAO_RECEBIDA,
+        geohash=geohash.encode(ocorrencia.latitude, ocorrencia.longitude, geohash.CELL_PRECISION),
+        payload=resolucao.model_dump(mode="json"),
+    )
+    await _publicar_evento(
+        request,
+        envelope,
+        falha="falha ao publicar resolução",
+        aceito="resolução aceita",
+        contexto={"client_id": str(resolucao.client_id)},
+    )
 
 
 @app.get("/health")
@@ -242,7 +299,7 @@ async def calcular_rota(
         rotas.validar_distancia(origem_coordenada, destino_coordenada)
         if not settings.ors_api_key:
             raise rotas.OrsNaoConfigurado
-        ip = request.client.host if request.client is not None else "desconhecido"
+        ip = _ip_cliente(request)
         _exigir_limite(
             await limite.consumir_rota(_redis(request), ip), "muitas rotas deste IP", {"ip": ip}
         )
@@ -303,3 +360,28 @@ async def confirmar_ocorrencia(
     )
     await _publicar_relato(request, relato)
     return RelatoAceito(client_id=confirmacao.client_id)
+
+
+@app.post("/v1/ocorrencias/{ocorrencia_id}/resolucoes", status_code=status.HTTP_202_ACCEPTED)
+async def resolver_ocorrencia(
+    ocorrencia_id: int, resolucao: ResolucaoIn, request: Request
+) -> RelatoAceito:
+    """Marca a ocorrência como "já passou". Cada aparelho conta uma vez; o processor encerra
+    quando as marcações chegam a min(3, confirmações). 409 se a ocorrência já não está ativa."""
+    ocorrencia = await leitura.buscar_ocorrencia(_pool(request), ocorrencia_id)
+    if ocorrencia is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "ocorrência não encontrada")
+    if ocorrencia.status is not StatusOcorrencia.ATIVA:
+        raise HTTPException(status.HTTP_409_CONFLICT, "ocorrência encerrada")
+    await _aplicar_limite(request, resolucao.device_id)
+    await _publicar_resolucao(
+        request,
+        ocorrencia,
+        ResolucaoRecebida(
+            client_id=resolucao.client_id,
+            device_id=resolucao.device_id,
+            ocorrencia_id=ocorrencia_id,
+            registrado_em=resolucao.registrado_em,
+        ),
+    )
+    return RelatoAceito(client_id=resolucao.client_id)

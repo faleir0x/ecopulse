@@ -23,4 +23,13 @@ ORDEM_SEVERIDADE: tuple[Severidade, ...] = (
     Severidade.CRITICO,
 )
 
+# "Já passou": no máximo esta quantidade de marcações encerra a ocorrência
+RESOLUCOES_MAXIMAS = 3
+
+
+def resolucoes_para_encerrar(confirmacoes: int) -> int:
+    """Marcações necessárias para encerrar: min(RESOLUCOES_MAXIMAS, confirmações), ao menos 1."""
+    return max(1, min(RESOLUCOES_MAXIMAS, confirmacoes))
+
+
 INTERVALO_EXPIRACAO_S = 60

@@ -46,3 +46,24 @@ export const ROTULO_SEVERIDADE: Record<Severidade, string> = {
 export function nivel(severidade: Severidade): 1 | 2 | 3 | 4 {
   return (SEVERIDADES.indexOf(severidade) + 1) as 1 | 2 | 3 | 4;
 }
+
+/** Espelha LeituraAmbiente (packages/common/src/ecopulse_common/events.py). */
+export type HoraPrevista = { hora: string; temperatura: number; codigo_tempo: number; chuva_mm: number };
+
+export type LeituraAmbiente = {
+  geohash: string;
+  latitude: number;
+  longitude: number;
+  medido_em: string;
+  fonte: string;
+  temperatura: number | null;
+  sensacao: number | null;
+  codigo_tempo: number | null;
+  minima_dia: number | null;
+  maxima_dia: number | null;
+  aqi: number | null;
+  chuva_mm_h: number | null;
+  proximas_horas: HoraPrevista[];
+  /** mm/h em 12 intervalos de 15 min (próximas 3 h) */
+  chuva_3h: number[];
+};

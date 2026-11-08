@@ -1,6 +1,6 @@
 /** Cliente HTTP da API (docs/ARQUITETURA.md, seção API). */
 import { endpoints } from '@/config/endpoints';
-import type { Ocorrencia, OcorrenciaDetalhe, Severidade, TipoRisco } from '@/domain/tipos';
+import type { LeituraAmbiente, Ocorrencia, OcorrenciaDetalhe, Severidade, TipoRisco } from '@/domain/tipos';
 import type { Bbox } from '@/lib/geohash';
 
 export const TIMEOUT_MS = 10_000;
@@ -174,3 +174,18 @@ export async function confirmarOcorrencia(id: number, corpo: ConfirmacaoEnvio, o
 }
 
 export { endpoints };
+
+/** GET /v1/ambiente?lat=&lon=. null = 404 "sem leitura" (o environment coleta em até 30 s). */
+export async function lerAmbiente(lat: number, lon: number, op: Opcoes = {}): Promise<LeituraAmbiente | null> {
+  try {
+    return await pedir<LeituraAmbiente>(
+      `/v1/ambiente?lat=${lat.toFixed(5)}&lon=${lon.toFixed(5)}`,
+      { method: 'GET' },
+      op,
+      true,
+    );
+  } catch (erro) {
+    if (erro instanceof ApiErro && erro.status === 404) return null;
+    throw erro;
+  }
+}

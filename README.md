@@ -38,11 +38,11 @@ uv run mypy packages services
 uv run pytest
 ```
 
-Testes de integração (precisam da infra, **sem** a API e o processor rodando, senão o processor consome as mensagens dos testes):
+Testes de integração (precisam da infra, **sem** a API e o processor rodando, senão o processor consome as mensagens dos testes). Eles **apagam as tabelas** do banco usado; para não perder os dados de demonstração, rode-os num banco separado (ex.: `createdb -U ecopulse ecopulse_teste` + `infra/postgres/init.sql`):
 
 ```bash
 cd infra && docker compose stop api processor && cd ..
-ECOPULSE_DATABASE_URL=postgresql://ecopulse:ecopulse@localhost:5432/ecopulse uv run pytest -m integration
+ECOPULSE_DATABASE_URL=postgresql://ecopulse:ecopulse@localhost:5432/ecopulse_teste uv run pytest -m integration
 ```
 
 ## App mobile (React Native + Expo)

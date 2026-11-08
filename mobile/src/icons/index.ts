@@ -18,6 +18,8 @@ export const ICONES = [
   'cloud-check', 'cloud-cross', 'gps', 'layers-minimalistic', 'map-point', 'pen', 'refresh',
   // rota segura
   'routing-2', 'flag', 'walking', 'car', 'danger-triangle',
+  // busca de local
+  'magnifer',
 ] as const;
 
 export type NomeIcone = (typeof ICONES)[number];

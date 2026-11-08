@@ -51,9 +51,12 @@ jobs:
       # consumiria das filas as mensagens que os testes publicam.
       - name: Subir infraestrutura
         working-directory: infra
-        run: >-
-          docker compose up -d --wait --wait-timeout 300
-          rabbitmq postgres redis-1 redis-2 redis-3 redis-cluster-init
+        # O redis-cluster-init cria o cluster e TERMINA: fica fora do --wait (que trata
+        # container encerrado como falha) e roda em primeiro plano até acabar
+        run: |
+          docker compose up -d --wait --wait-timeout 400 \
+            rabbitmq postgres redis-1 redis-2 redis-3 redis-4 redis-5 redis-6
+          docker compose up --no-deps --exit-code-from redis-cluster-init redis-cluster-init
       - name: Testes de integração
         env:
           ECOPULSE_REDIS_REMAP_LOCALHOST: "true"

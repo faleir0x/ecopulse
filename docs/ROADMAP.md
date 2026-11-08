@@ -53,7 +53,7 @@ Conferência com o texto da APS (seções II–V) mostrou lacunas; a proposta pe
 - [x] **5.2** Alta disponibilidade como padrão: RabbitMQ com 3 nós + filas quorum + HAProxy; Redis Cluster com 3 mestres + 3 réplicas
 - [x] **5.3** Camadas ambientais no mapa (Calor e Ar por célula geohash) + `GET /v1/ambiente/camada?bbox=` com cache ("mapa de calor")
 - [x] **5.4** Alerta ao entrar na zona de influência de uma ocorrência ativa (posição do usuário)
-- [ ] **5.5** Roteamento preventivo: rota que desvia das ocorrências ativas (Valhalla com `exclude_polygons`, OpenStreetMap de São Paulo)
+- [ ] **5.5** Roteamento preventivo: rota que desvia das ocorrências ativas (OpenRouteService com `avoid_polygons`, cobertura mundial; chave só no servidor)
 
 ## Pendências (depois da 4.6)
 - [x] `GET /v1/relatos/{client_id}` (ocorrência e confirmações do próprio relato) e "Meus relatos" abrindo o detalhe no Mapa

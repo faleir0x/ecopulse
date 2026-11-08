@@ -1,7 +1,15 @@
 import * as Haptics from 'expo-haptics';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BackHandler, PixelRatio, Platform, Pressable, StyleSheet, View } from 'react-native';
+import {
+  BackHandler,
+  PixelRatio,
+  Platform,
+  Pressable,
+  StyleSheet,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import MapView, {
   Circle,
   PROVIDER_GOOGLE,
@@ -29,7 +37,9 @@ import { useUi } from '@/state/ui';
 import { useTema } from '@/theme/tema';
 import { espaco, sheet as tokensSheet, tamanho } from '@/theme/tokens';
 
+import { agrupar, type Grupo } from './agrupar';
 import { CamadaAmbiental } from './CamadaAmbiental';
+import { ClusterMarker } from './ClusterMarker';
 import {
   CENTRO_SAO_PAULO,
   RAIO_AREA_SELECIONADA_M,
@@ -71,6 +81,7 @@ function bboxDaRegiao(regiao: Region): Bbox {
 export function TelaMapa() {
   const { cor, sev, esquema } = useTema();
   const insets = useSafeAreaInsets();
+  const { width: larguraTela } = useWindowDimensions();
   const { setModoFoco, ocorrenciaFoco, setOcorrenciaFoco } = useUi();
   const { raioM } = useAjustes();
   const { estado, meus } = useRelatos();
@@ -79,6 +90,7 @@ export function TelaMapa() {
   const [camada, setCamada] = useState<Camada>('nenhuma');
   const [selecionadoId, setSelecionadoId] = useState<number | null>(null);
   const [bbox, setBbox] = useState<Bbox | null>(null);
+  const [regiao, setRegiao] = useState<Region | null>(null);
   const [indiceDetent, setIndiceDetent] = useState(0);
   const [resposta, setResposta] = useState<EstadoResposta>(null);
   const [desfazerPendente, setDesfazerPendente] = useState(false);
@@ -130,6 +142,13 @@ export function TelaMapa() {
     () => ocorrenciasNoRaio(proximas.data ?? [], origem, raioM),
     [proximas.data, origem, raioM],
   );
+
+  // Marcadores próximos (menos de ~56 dp na tela) viram um marcador de grupo; a selecionada fica solta
+  const { soltos, grupos } = useMemo(() => {
+    if (!regiao) return { soltos: marcadores, grupos: [] as Grupo[] };
+    const fixos = new Set<number>(selecionadoId === null ? [] : [selecionadoId]);
+    return agrupar(marcadores, regiao, larguraTela, fixos);
+  }, [marcadores, regiao, larguraTela, selecionadoId]);
 
   const pendentes = useMemo(() => meus.filter((relato) => relato.status === 'pendente'), [meus]);
 
@@ -322,6 +341,23 @@ export function TelaMapa() {
     [modoRota, faseRota, setDestinoRota, fecharDetalhe],
   );
 
+  // Tocar no grupo centraliza nele e aproxima 2 níveis (tocar de novo separa mais). No modo rota
+  // não faz nada. fitToCoordinates com pontos quase iguais joga o grupo na borda no Android
+  const abrirGrupo = useCallback(
+    (grupo: Grupo) => {
+      if (modoRota || !regiao) return;
+      const zoomAtual = Math.log2((360 * larguraTela) / (256 * regiao.longitudeDelta));
+      mapaRef.current?.animateCamera(
+        {
+          center: { latitude: grupo.latitude, longitude: grupo.longitude },
+          zoom: Math.min(zoomAtual + 2, 18),
+        },
+        { duration: 500 },
+      );
+    },
+    [modoRota, regiao, larguraTela],
+  );
+
   // Voltar do Android: no modo rota sai ou volta para a escolha do destino.
   useEffect(() => {
     if (!modoRota) return;
@@ -461,7 +497,10 @@ export function TelaMapa() {
               ? { top: 0, right: 0, bottom: tokensSheet.detail, left: 0 }
               : undefined
         }
-        onRegionChangeComplete={(regiao) => setBbox(bboxDaRegiao(regiao))}
+        onRegionChangeComplete={(novaRegiao) => {
+          setRegiao(novaRegiao);
+          setBbox(bboxDaRegiao(novaRegiao));
+        }}
         onPress={aoPressionarMapa}
         onPanDrag={cameraSegue ? () => setCameraSegue(false) : undefined}
       >
@@ -500,7 +539,7 @@ export function TelaMapa() {
           />
         ) : null}
 
-        {marcadores.map((ocorrencia) => (
+        {soltos.map((ocorrencia) => (
           <IncidentMarker
             key={ocorrencia.id}
             ocorrencia={ocorrencia}
@@ -511,6 +550,10 @@ export function TelaMapa() {
               if (!modoRota) abrirDetalhe(ocorrencia.id);
             }}
           />
+        ))}
+
+        {grupos.map((grupo) => (
+          <ClusterMarker key={grupo.chave} grupo={grupo} onPress={() => abrirGrupo(grupo)} />
         ))}
 
         {pendentes.map((relato) => (

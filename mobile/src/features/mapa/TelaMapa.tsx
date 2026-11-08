@@ -1,5 +1,5 @@
 import * as Haptics from 'expo-haptics';
-import { useFocusEffect } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BackHandler,
@@ -609,9 +609,18 @@ export function TelaMapa() {
             <LegendaCamada camada={camada} carregando={camadaAmbiente.isPending} />
           </View>
         ) : null}
-        {!temLocalizacao ? (
+        {/* Procurando o GPS não é erro: só "Sem localização" quando negada/indisponível */}
+        {localizacao.status === 'carregando' ? (
           <View style={styles.semLocalizacao}>
-            <Pill rotulo="Sem localização" />
+            <Pill rotulo="Localizando…" carregando />
+          </View>
+        ) : !temLocalizacao ? (
+          <View style={styles.semLocalizacao}>
+            <Pill
+              rotulo="Sem localização"
+              icone="map-point"
+              onPress={() => router.navigate('/local')}
+            />
           </View>
         ) : null}
       </View>

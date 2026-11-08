@@ -57,45 +57,84 @@ function IconeAba({ icone, ativo, cor }: { icone: NomeIcone; ativo: boolean; cor
 /** Espaço que as telas reservam no rodapé para a tab bar flutuante (sem o inset). */
 export const ALTURA_TAB_BAR = tamanho.tabBar + espaco.lg + espaco.md + espaco.sm;
 
-export function TabBar({ state, descriptors, navigateToTab, emitter, insets }: BottomTabBarProps) {
-  const { cor, sev, reduzirMovimento } = useTema();
-  const [medidas, setMedidas] = useState<Record<string, { x: number; width: number }>>({});
-  const indicadorX = useSharedValue(0);
-  const indicadorLargura = useSharedValue(0);
-  const posicionado = useRef(false);
+const PADDING = 4;
+const GAP = 2;
+/** Proporção do design: a aba ativa vale 2,3 inativas (tokens motion.tabIndicator). */
+const PESO_ATIVA = 2.3;
+const ALTURA_ABA = tamanho.tabBar - PADDING * 2 - 4;
 
-  const rotaAtiva = state.routes[state.index];
-  const nomeAtivo = rotaAtiva?.name;
+/**
+ * Larguras calculadas a partir da largura medida da barra, sem depender de flexBasis/flexShrink
+ * (que o Yoga no Android resolve diferente da web). Exportada para teste.
+ */
+export function larguras(larguraBarra: number, quantidade: number) {
+  const util = larguraBarra - PADDING * 2 - GAP * (quantidade - 1) - StyleSheet.hairlineWidth * 2;
+  const inativa = util / (PESO_ATIVA + quantidade - 1);
+  return { ativa: inativa * PESO_ATIVA, inativa };
+}
+
+function AbaAnimada({
+  largura,
+  animar,
+  children,
+}: {
+  largura: number | null;
+  animar: boolean;
+  children: React.ReactNode;
+}) {
+  const valor = useSharedValue(largura ?? 0);
+  const posicionada = useRef(false);
 
   useEffect(() => {
-    if (!nomeAtivo) return;
-    const medida = medidas[nomeAtivo];
-    if (!medida) return;
+    if (largura === null) return;
+    // A primeira largura entra direto; só as trocas de aba animam
+    valor.value =
+      animar && posicionada.current
+        ? withTiming(largura, { duration: 460, easing: CURVA_SHEET })
+        : largura;
+    posicionada.current = true;
+  }, [largura, animar, valor]);
 
-    // Primeira medida: posiciona sem animar (não desliza a partir da borda ao abrir o app)
-    if (reduzirMovimento || !posicionado.current) {
-      posicionado.current = true;
-      indicadorX.value = medida.x;
-      indicadorLargura.value = medida.width;
-      return;
+  const estilo = useAnimatedStyle(() => ({ width: valor.value }));
+
+  // Antes da primeira medida, divide igualmente para não piscar vazio
+  if (largura === null) return <View style={styles.abaPendente}>{children}</View>;
+  return <Animated.View style={[styles.abaCaixa, estilo]}>{children}</Animated.View>;
+}
+
+export function TabBar({ state, descriptors, navigateToTab, emitter, insets }: BottomTabBarProps) {
+  const { cor, sev, reduzirMovimento } = useTema();
+  const [larguraBarra, setLarguraBarra] = useState<number | null>(null);
+  const jaMediu = useRef(false);
+  const indicadorX = useSharedValue(0);
+  const indicadorLargura = useSharedValue(0);
+
+  const quantidade = state.routes.length;
+  const medidas = larguraBarra === null ? null : larguras(larguraBarra, quantidade);
+  const animar = !reduzirMovimento;
+
+  useEffect(() => {
+    if (!medidas) return;
+    // Todas as abas antes da ativa são inativas
+    const x = PADDING + state.index * (medidas.inativa + GAP);
+    if (animar && jaMediu.current) {
+      indicadorX.value = withTiming(x, { duration: 460, easing: CURVA_SHEET });
+      indicadorLargura.value = withTiming(medidas.ativa, { duration: 460, easing: CURVA_SHEET });
+    } else {
+      indicadorX.value = x;
+      indicadorLargura.value = medidas.ativa;
     }
-
-    indicadorX.value = withTiming(medida.x, { duration: 460, easing: CURVA_SHEET });
-    indicadorLargura.value = withTiming(medida.width, { duration: 460, easing: CURVA_SHEET });
-  }, [nomeAtivo, medidas, reduzirMovimento, indicadorX, indicadorLargura]);
+    jaMediu.current = true;
+  }, [state.index, medidas?.ativa, medidas?.inativa, animar, indicadorX, indicadorLargura]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const estiloIndicador = useAnimatedStyle(() => ({
-    left: indicadorX.value,
+    transform: [{ translateX: indicadorX.value }],
     width: indicadorLargura.value,
   }));
 
-  const medir = (chave: string, evento: LayoutChangeEvent) => {
-    const { x, width } = evento.nativeEvent.layout;
-    setMedidas((atual) => {
-      const existente = atual[chave];
-      if (existente && existente.x === x && existente.width === width) return atual;
-      return { ...atual, [chave]: { x, width } };
-    });
+  const medirBarra = (evento: LayoutChangeEvent) => {
+    const largura = Math.round(evento.nativeEvent.layout.width);
+    setLarguraBarra((atual) => (atual === largura ? atual : largura));
   };
 
   const abrir = (rota: (typeof state.routes)[number], foco: boolean) => {
@@ -119,6 +158,7 @@ export function TabBar({ state, descriptors, navigateToTab, emitter, insets }: B
     >
       <View style={styles.linha}>
         <View
+          onLayout={medirBarra}
           style={[
             styles.tabs,
             { backgroundColor: cor.nav, borderColor: cor.line, shadowColor: cor.scrim },
@@ -126,7 +166,11 @@ export function TabBar({ state, descriptors, navigateToTab, emitter, insets }: B
         >
           <Animated.View
             pointerEvents="none"
-            style={[styles.indicador, { backgroundColor: cor.ink }, estiloIndicador]}
+            style={[
+              styles.indicador,
+              { backgroundColor: cor.ink, opacity: medidas ? 1 : 0 },
+              estiloIndicador,
+            ]}
           />
           {state.routes.map((rota, indice) => {
             const foco = indice === state.index;
@@ -140,36 +184,40 @@ export function TabBar({ state, descriptors, navigateToTab, emitter, insets }: B
             const temBadge = badge !== undefined && badge !== null && badge !== '' && badge !== 0;
 
             return (
-              <Pressable
+              <AbaAnimada
                 key={rota.key}
-                onPress={() => abrir(rota, foco)}
-                onLongPress={() =>
-                  emitter.emit({ type: 'tabLongPress', target: rota.key })
-                }
-                onLayout={(evento) => medir(rota.name, evento)}
-                accessibilityRole="tab"
-                accessibilityState={{ selected: foco }}
-                accessibilityLabel={aba.rotulo}
-                // Ativa: parte da largura do próprio conteúdo (o rótulo sempre cabe) e cresce mais
-                style={[styles.aba, foco ? styles.abaAtiva : styles.abaInativa]}
+                largura={medidas ? (foco ? medidas.ativa : medidas.inativa) : null}
+                animar={animar}
               >
-                <IconeAba
-                  icone={aba.icone}
-                  ativo={foco}
-                  cor={foco ? cor.onInk : cor.textSecondary}
-                />
-                {foco ? (
-                  <T
-                    estilo="headline"
-                    cromo
-                    numberOfLines={1}
-                    style={[styles.rotulo, { color: cor.onInk }]}
-                  >
-                    {aba.rotulo}
-                  </T>
-                ) : null}
+                <Pressable
+                  onPress={() => abrir(rota, foco)}
+                  onLongPress={() => emitter.emit({ type: 'tabLongPress', target: rota.key })}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: foco }}
+                  accessibilityLabel={aba.rotulo}
+                  style={[styles.aba, foco && styles.abaAtiva]}
+                >
+                  <IconeAba
+                    icone={aba.icone}
+                    ativo={foco}
+                    cor={foco ? cor.onInk : cor.textSecondary}
+                  />
+                  {foco ? (
+                    <T
+                      estilo="headline"
+                      cromo
+                      numberOfLines={1}
+                      style={[styles.rotulo, { color: cor.onInk }]}
+                    >
+                      {aba.rotulo}
+                    </T>
+                  ) : null}
+                </Pressable>
                 {temBadge ? (
-                  <View style={[styles.badge, { backgroundColor: sev.fill.critico }]}>
+                  <View
+                    pointerEvents="none"
+                    style={[styles.badge, { backgroundColor: sev.fill.critico }]}
+                  >
                     <T
                       estilo="caption"
                       cromo
@@ -181,7 +229,7 @@ export function TabBar({ state, descriptors, navigateToTab, emitter, insets }: B
                     </T>
                   </View>
                 ) : null}
-              </Pressable>
+              </AbaAnimada>
             );
           })}
         </View>
@@ -212,43 +260,39 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 4,
-    gap: 2,
+    padding: PADDING,
+    gap: GAP,
     shadowOpacity: 0.35,
     shadowRadius: 16,
     shadowOffset: { width: 0, height: 12 },
     elevation: 8,
   },
+  // Posicionado por translateX a partir da borda interna (x já inclui o PADDING)
   indicador: {
     position: 'absolute',
-    top: 6,
-    height: 52,
+    left: 0,
+    top: (tamanho.tabBar - ALTURA_ABA) / 2 - StyleSheet.hairlineWidth,
+    height: ALTURA_ABA,
     borderRadius: raio.pill,
   },
+  abaCaixa: {
+    height: ALTURA_ABA,
+  },
+  abaPendente: {
+    flex: 1,
+    height: ALTURA_ABA,
+  },
   aba: {
-    height: 52,
+    flex: 1,
     borderRadius: raio.pill,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    zIndex: 1,
+    overflow: 'hidden',
   },
-  // Ativa parte da largura do conteúdo, mas pode encolher (rótulo com reticências) em
-  // telas estreitas; inativas nunca ficam abaixo da área mínima de toque (44)
   abaAtiva: {
-    flexGrow: 2.3,
-    flexBasis: 'auto',
-    flexShrink: 1,
-    minWidth: 0,
     paddingHorizontal: 12,
-  },
-  abaInativa: {
-    flexGrow: 1,
-    flexBasis: 0,
-    flexShrink: 0,
-    minWidth: tamanho.touch,
-    paddingHorizontal: 0,
   },
   icone: {
     width: tamanho.iconLg,

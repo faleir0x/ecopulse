@@ -3,7 +3,7 @@ import type { BottomTabBarProps } from 'expo-router/tabs';
 
 import { TemaProvider } from '@/theme/tema';
 
-import { TabBar } from './TabBar';
+import { TabBar, larguras } from './TabBar';
 
 jest.mock('expo-sqlite/kv-store', () => ({
   __esModule: true,
@@ -99,5 +99,20 @@ describe('TabBar', () => {
 
     fireEvent.press(getByLabelText('Mapa'));
     expect(navigateToTab).toHaveBeenCalledWith('mapa-1');
+  });
+});
+
+describe('larguras', () => {
+  // Celular de 360 dp: 360 - gutter 2×16 - Fab 64 - espaço 8 = 256 para a barra
+  it('cabe o rótulo ativo e mantém a área de toque das inativas em 360 dp', () => {
+    const { ativa, inativa } = larguras(256, 4);
+    expect(inativa).toBeGreaterThanOrEqual(44);
+    // padding 2×12 + ícone 24 + espaço 6 + "Alertas" (~40 a 14 px, 46 com fonte a 115%)
+    expect(ativa).toBeGreaterThanOrEqual(24 + 24 + 6 + 46);
+  });
+
+  it('mantém a proporção 2,3 : 1 do design', () => {
+    const { ativa, inativa } = larguras(300, 4);
+    expect(ativa / inativa).toBeCloseTo(2.3);
   });
 });

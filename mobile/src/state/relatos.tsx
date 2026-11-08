@@ -22,6 +22,8 @@ type Relatos = {
   /** Relatos do aparelho (Meus relatos e marcadores pendentes no mapa). */
   meus: outbox.RelatoLocal[];
   encerrar: (clientId: string) => void;
+  /** Tenta enviar a fila agora (ex.: o WebSocket reconectou: o servidor voltou). */
+  sincronizarAgora: () => void;
 };
 
 const ESTADO_INICIAL: EstadoSync = { online: true, pendentes: 0, enviando: false, ultimoEnvio: null };
@@ -96,7 +98,14 @@ export function RelatosProvider({ children }: { children: ReactNode }) {
     [db],
   );
 
-  const valor = useMemo(() => ({ estado, relatar, meus, encerrar }), [estado, relatar, meus, encerrar]);
+  const sincronizarAgora = useCallback(() => {
+    void sincronizador.sincronizarAgora();
+  }, [sincronizador]);
+
+  const valor = useMemo(
+    () => ({ estado, relatar, meus, encerrar, sincronizarAgora }),
+    [estado, relatar, meus, encerrar, sincronizarAgora],
+  );
   return <RelatosContext.Provider value={valor}>{children}</RelatosContext.Provider>;
 }
 

@@ -42,7 +42,7 @@ Tipos de risco: os 4 da proposta (alagamento, calor, qualidade do ar, rota obstr
 - [x] **4.2** Tema (tokens light/dark) e componentes base
 - [x] **4.3** Mapa e camadas
 - [x] **4.4** Novo relato + outbox SQLite + sincronização
-- [ ] **4.5** Alertas (WebSocket + notificação local), onboarding e ajustes
+- [x] **4.5** Alertas (WebSocket + notificação local), onboarding e ajustes
 - [ ] **4.6** Aba Agora (temperatura, AQI, chuva, riscos por perto), com dados de exemplo até a 5.1
 
 ## Fase 5: Dados ambientais

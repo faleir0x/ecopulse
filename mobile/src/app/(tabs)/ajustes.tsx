@@ -1,14 +1,5 @@
-import { View } from 'react-native';
+import { TelaAjustes } from '@/features/ajustes/TelaAjustes';
 
-import { T } from '@/components';
-
-// Placeholder: a tela de verdade entra nas etapas 4.3 a 4.6
 export default function AjustesScreen() {
-  return (
-    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-      <T estilo="title" cor="textSecondary">
-        Ajustes
-      </T>
-    </View>
-  );
+  return <TelaAjustes />;
 }

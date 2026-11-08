@@ -1,14 +1,5 @@
-import { View } from 'react-native';
+import { TelaAlertas } from '@/features/alertas/TelaAlertas';
 
-import { T } from '@/components';
-
-// Placeholder: a tela de verdade entra nas etapas 4.3 a 4.6
 export default function AlertasScreen() {
-  return (
-    <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-      <T estilo="title" cor="textSecondary">
-        Alertas
-      </T>
-    </View>
-  );
+  return <TelaAlertas />;
 }

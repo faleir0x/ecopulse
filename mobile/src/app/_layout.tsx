@@ -7,6 +7,8 @@ import { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { fontes } from '@/theme/fontes';
+import { AjustesProvider } from '@/state/ajustes';
+import { AlertasProvider } from '@/state/alertas';
 import { RelatosProvider } from '@/state/relatos';
 import { UiProvider } from '@/state/ui';
 import { TemaProvider, useTema } from '@/theme/tema';
@@ -35,9 +37,13 @@ export default function RootLayout() {
       <QueryClientProvider client={clienteQuery}>
         <TemaProvider>
           <UiProvider>
-            <RelatosProvider>
-              <Navegacao />
-            </RelatosProvider>
+            <AjustesProvider>
+              <RelatosProvider>
+                <AlertasProvider>
+                  <Navegacao />
+                </AlertasProvider>
+              </RelatosProvider>
+            </AjustesProvider>
           </UiProvider>
         </TemaProvider>
       </QueryClientProvider>

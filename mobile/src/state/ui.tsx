@@ -8,6 +8,9 @@ type Ui = {
   /** Sheet de relato (botão + da tab bar). */
   relatarAberto: boolean;
   setRelatarAberto: (aberto: boolean) => void;
+  /** Ocorrência a abrir no Mapa (toque num alerta ou notificação); o Mapa consome e zera. */
+  ocorrenciaFoco: number | null;
+  setOcorrenciaFoco: (id: number | null) => void;
 };
 
 const UiContext = createContext<Ui>({
@@ -15,14 +18,17 @@ const UiContext = createContext<Ui>({
   setModoFoco: () => undefined,
   relatarAberto: false,
   setRelatarAberto: () => undefined,
+  ocorrenciaFoco: null,
+  setOcorrenciaFoco: () => undefined,
 });
 
 export function UiProvider({ children }: { children: ReactNode }) {
   const [modoFoco, setModoFoco] = useState(false);
   const [relatarAberto, setRelatarAberto] = useState(false);
+  const [ocorrenciaFoco, setOcorrenciaFoco] = useState<number | null>(null);
   const valor = useMemo(
-    () => ({ modoFoco, setModoFoco, relatarAberto, setRelatarAberto }),
-    [modoFoco, relatarAberto],
+    () => ({ modoFoco, setModoFoco, relatarAberto, setRelatarAberto, ocorrenciaFoco, setOcorrenciaFoco }),
+    [modoFoco, relatarAberto, ocorrenciaFoco],
   );
   return <UiContext.Provider value={valor}>{children}</UiContext.Provider>;
 }

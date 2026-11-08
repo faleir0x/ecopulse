@@ -1,4 +1,5 @@
 import * as Haptics from 'expo-haptics';
+import { useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import MapView, { Circle, PROVIDER_GOOGLE, type Region } from 'react-native-maps';
@@ -13,6 +14,7 @@ import { useConfirmar, useDetalhe, useOcorrencias } from '@/features/ocorrencias
 import { Icon } from '@/icons/Icon';
 import type { Bbox } from '@/lib/geohash';
 import { useRelatos } from '@/state/relatos';
+import { useAjustes } from '@/state/ajustes';
 import { useUi } from '@/state/ui';
 import { useTema } from '@/theme/tema';
 import { espaco, sheet as tokensSheet, tamanho } from '@/theme/tokens';
@@ -20,7 +22,6 @@ import { espaco, sheet as tokensSheet, tamanho } from '@/theme/tokens';
 import {
   CENTRO_SAO_PAULO,
   RAIO_AREA_SELECIONADA_M,
-  RAIO_PADRAO_M,
   ZOOM_PADRAO,
   ZOOM_SELECIONADO,
 } from './constantes';
@@ -51,7 +52,8 @@ function bboxDaRegiao(regiao: Region): Bbox {
 export function TelaMapa() {
   const { cor, sev, esquema } = useTema();
   const insets = useSafeAreaInsets();
-  const { setModoFoco } = useUi();
+  const { setModoFoco, ocorrenciaFoco, setOcorrenciaFoco } = useUi();
+  const { raioM } = useAjustes();
   const { estado, meus } = useRelatos();
 
   const [filtro, setFiltro] = useState<TipoRisco | null>(null);
@@ -83,8 +85,8 @@ export function TelaMapa() {
   );
 
   const lista = useMemo(
-    () => ocorrenciasNoRaio(ocorrencias.data ?? [], origem, RAIO_PADRAO_M),
-    [ocorrencias.data, origem],
+    () => ocorrenciasNoRaio(ocorrencias.data ?? [], origem, raioM),
+    [ocorrencias.data, origem, raioM],
   );
 
   const pendentes = useMemo(() => meus.filter((relato) => relato.status === 'pendente'), [meus]);
@@ -124,6 +126,22 @@ export function TelaMapa() {
     },
     [cancelarTimer, setModoFoco],
   );
+
+  // Saiu do Mapa (outra aba, onboarding): o modo foco não pode continuar escondendo a tab bar
+  useFocusEffect(
+    useCallback(() => () => setModoFoco(false), [setModoFoco]),
+  );
+
+  // Toque num alerta ou notificação: abre o detalhe da ocorrência pedida
+  // (no próximo tick: a aba acabou de montar e o mapa precisa existir antes da câmera mover)
+  useEffect(() => {
+    if (ocorrenciaFoco === null) return;
+    const t = setTimeout(() => {
+      abrirDetalhe(ocorrenciaFoco);
+      setOcorrenciaFoco(null);
+    }, 0);
+    return () => clearTimeout(t);
+  }, [ocorrenciaFoco, abrirDetalhe, setOcorrenciaFoco]);
 
   const fecharDetalhe = useCallback(() => {
     if (selecionadoId === null) return;
@@ -238,6 +256,8 @@ export function TelaMapa() {
       }}
     >
       <MapView
+        // O Google Maps no Android não reaplica o customMapStyle ao trocar o tema: recria o mapa
+        key={esquema}
         ref={mapaRef}
         provider={PROVIDER_GOOGLE}
         customMapStyle={estiloMapa(esquema)}
@@ -262,7 +282,7 @@ export function TelaMapa() {
           <>
             <Circle
               center={localizacao.coords}
-              radius={RAIO_PADRAO_M}
+              radius={raioM}
               strokeColor={comAlfa(cor.accent, 0.45)}
               fillColor={comAlfa(cor.accent, 0.05)}
               strokeWidth={1.5}
@@ -304,7 +324,7 @@ export function TelaMapa() {
         modoFoco={modoFoco}
         lista={lista}
         origem={origem}
-        raioM={RAIO_PADRAO_M}
+        raioM={raioM}
         carregando={ocorrencias.isPending}
         erro={ocorrencias.isError}
         temFiltro={filtro !== null}

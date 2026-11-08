@@ -53,8 +53,11 @@ Tipos de risco: os 4 da proposta (alagamento, calor, qualidade do ar, rota obstr
 - [ ] Rate limit também por IP (além do por aparelho)
 - [ ] Ajustes finos de design listados na 4.5: miniatura 48 px no componente compartilhado, contador "N novos" em Alertas, ícone `bell-off` no vazio
 - [ ] Avaliar com o professor se a identificação anônima por aparelho atende (sem login)
+- [ ] Canal de notificação Android "Alertas de risco" (prioridade alta)
 
 ## Fase 6: Entrega
-- [ ] **6.1** CD: publicação das imagens no GHCR
+- [ ] **6.1** CD: publicação das imagens no GHCR (packages)
+- [ ] **6.4** APK do app nas Releases do GitHub (workflow por tag: expo prebuild + Gradle no runner, APK assinado)
+- [ ] **6.5** Push remoto com Firebase (FCM): serviço `notifier` consumindo `ocorrencia.*` e enviando para os aparelhos das células; alerta com o app fechado (depende do APK da 6.4)
 - [ ] **6.2** Scripts dos cenários de demonstração (falhas, escala, offline)
 - [ ] **6.3** Base do relatório final (estrutura ABNT/UNIP)

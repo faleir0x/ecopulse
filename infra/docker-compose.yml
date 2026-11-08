@@ -269,6 +269,20 @@ services:
     ports:
       - "${REALTIME_PORT:-8002}:8000"
 
+  # Cloudflare Tunnel (só para testes fora da rede local): api.faleir0x.com → api:8000,
+  # rt.faleir0x.com → realtime:8000. Sobe só com --profile tunel; o token fica no .env.
+  cloudflared:
+    image: cloudflare/cloudflared:2026.10.7
+    command: ["tunnel", "--no-autoupdate", "run"]
+    profiles: [tunel]
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    networks: [ecopulse]
+    restart: unless-stopped
+    depends_on:
+      api: { condition: service_healthy }
+      realtime: { condition: service_healthy }
+
 networks:
   ecopulse:
     ipam:

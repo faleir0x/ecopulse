@@ -27,6 +27,8 @@ export type RiskSummaryProps = {
   erro: boolean;
   onTentar: () => void;
   onAbrirMapa: () => void;
+  /** Níveis medidos (ar, calor): a célula mostra o pior entre o relatado e o medido. */
+  medido?: Partial<Record<TipoRisco, Severidade | null>>;
 };
 
 function vazioPorTipo(): Record<TipoRisco, Severidade | null> {
@@ -61,12 +63,20 @@ export function RiskSummary({
   erro,
   onTentar,
   onAbrirMapa,
+  medido,
 }: RiskSummaryProps) {
   const { cor, sev } = useTema();
-  const piores = useMemo(
-    () => piorPorTipo(ocorrencias, origem, raioM),
-    [ocorrencias, origem, raioM],
-  );
+  const piores = useMemo(() => {
+    const relatados = piorPorTipo(ocorrencias, origem, raioM);
+    for (const tipo of TIPOS_RISCO) {
+      const valor = medido?.[tipo] ?? null;
+      const atual = relatados[tipo];
+      if (valor && (atual === null || SEVERIDADES.indexOf(valor) > SEVERIDADES.indexOf(atual))) {
+        relatados[tipo] = valor;
+      }
+    }
+    return relatados;
+  }, [ocorrencias, origem, raioM, medido]);
   const emLinhas = PixelRatio.getFontScale() > 1.15;
 
   if (erro) {

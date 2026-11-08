@@ -59,6 +59,11 @@ async def test_open_meteo_caso_completo() -> None:
     async with _cliente(handler) as cliente:
         leitura = await OpenMeteo(cliente).ler(GEOHASH5, LATITUDE, LONGITUDE)
 
+    assert "wind_speed_10m" in previsao["current"]
+    assert leitura.vento_kmh == 7.4
+    assert leitura.vento_direcao == 132
+    assert leitura.rajada_kmh == 18.0
+
     assert leitura.geohash == GEOHASH5
     assert leitura.latitude == LATITUDE
     assert leitura.longitude == LONGITUDE
@@ -96,6 +101,26 @@ async def test_open_meteo_caso_completo() -> None:
         ]
     )
     assert leitura.chuva_mm_h == pytest.approx(1.2)
+
+
+async def test_open_meteo_sem_vento_deixa_vento_none() -> None:
+    previsao = _carregar("openmeteo_previsao.json")
+    for campo in ("wind_speed_10m", "wind_direction_10m", "wind_gusts_10m"):
+        previsao["current"].pop(campo)
+    ar = _carregar("openmeteo_ar.json")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "air-quality-api.open-meteo.com":
+            return httpx.Response(200, json=ar)
+        return httpx.Response(200, json=previsao)
+
+    async with _cliente(handler) as cliente:
+        leitura = await OpenMeteo(cliente).ler(GEOHASH5, LATITUDE, LONGITUDE)
+
+    assert leitura.vento_kmh is None
+    assert leitura.vento_direcao is None
+    assert leitura.rajada_kmh is None
+    assert leitura.temperatura is not None
 
 
 async def test_open_meteo_ar_falhando_deixa_aqi_none() -> None:
@@ -189,6 +214,7 @@ async def test_simulador_onda_de_calor() -> None:
     assert 34.0 <= leitura.sensacao <= 38.0
     assert 34.0 <= leitura.minima_dia <= leitura.maxima_dia <= 38.0
     assert 150 <= leitura.aqi <= 220
+    assert leitura.vento_kmh is not None and 2.0 <= leitura.vento_kmh <= 6.0
     assert leitura.chuva_mm_h == 0.0
     assert all(chuva == 0.0 for chuva in leitura.chuva_3h)
     assert all(hora.chuva_mm == 0.0 for hora in leitura.proximas_horas)

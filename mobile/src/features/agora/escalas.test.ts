@@ -1,6 +1,13 @@
 import { escalaTemperatura, faixasAqi } from '@/theme/tokens';
 
-import { corNaEscala, gradienteTemperatura, interpolarOkLab, nivelAqi } from './escalas';
+import {
+  corNaEscala,
+  gradienteTemperatura,
+  interpolarOkLab,
+  nivelAqi,
+  nivelArMedido,
+  nivelCalorMedido,
+} from './escalas';
 
 describe('escalas de temperatura (OKLab)', () => {
   it('devolve a parada exata nos extremos', () => {
@@ -50,5 +57,22 @@ describe('nível do AQI pelas faixas', () => {
   it('devolve null sem leitura', () => {
     expect(nivelAqi(null)).toBeNull();
     expect(nivelAqi(undefined)).toBeNull();
+  });
+});
+
+describe('níveis medidos', () => {
+  it('ar: AQI bom não conta como risco', () => {
+    expect(nivelArMedido(40)).toBeNull();
+    expect(nivelArMedido(75)).toBe('moderado');
+    expect(nivelArMedido(153)).toBe('alto');
+    expect(nivelArMedido(null)).toBeNull();
+  });
+
+  it('calor: faixas da sensação térmica', () => {
+    expect(nivelCalorMedido(31.9)).toBeNull();
+    expect(nivelCalorMedido(32)).toBe('moderado');
+    expect(nivelCalorMedido(37)).toBe('alto');
+    expect(nivelCalorMedido(41)).toBe('critico');
+    expect(nivelCalorMedido(undefined)).toBeNull();
   });
 });

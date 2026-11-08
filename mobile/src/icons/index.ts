@@ -20,6 +20,8 @@ export const ICONES = [
   'routing-2', 'flag', 'walking', 'car', 'danger-triangle',
   // busca de local
   'magnifer',
+  // vento
+  'flag-2',
 ] as const;
 
 export type NomeIcone = (typeof ICONES)[number];

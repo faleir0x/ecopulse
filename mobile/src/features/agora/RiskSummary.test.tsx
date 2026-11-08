@@ -85,3 +85,24 @@ describe('RiskSummary', () => {
     escala.mockRestore();
   });
 });
+
+describe('RiskSummary com níveis medidos', () => {
+  it('mostra o pior entre o relatado e o medido', async () => {
+    const { getByLabelText } = await render(
+      <TemaProvider inicial="escuro">
+        <RiskSummary
+          ocorrencias={[]}
+          origem={ORIGEM}
+          raioM={1000}
+          erro={false}
+          onTentar={jest.fn()}
+          onAbrirMapa={jest.fn()}
+          medido={{ qualidade_ar: 'alto', calor: null }}
+        />
+      </TemaProvider>,
+    );
+
+    expect(getByLabelText('Ar: Alto')).toBeTruthy();
+    expect(getByLabelText('Calor: Sem risco')).toBeTruthy();
+  });
+});

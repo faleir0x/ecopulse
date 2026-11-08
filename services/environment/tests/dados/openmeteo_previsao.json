@@ -20,7 +20,10 @@
     "temperature_2m": 16.1,
     "apparent_temperature": 15.7,
     "weather_code": 55,
-    "precipitation": 0.3
+    "precipitation": 0.3,
+    "wind_speed_10m": 7.4,
+    "wind_direction_10m": 132,
+    "wind_gusts_10m": 18.0
   },
   "minutely_15_units": {
     "time": "iso8601",

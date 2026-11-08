@@ -24,11 +24,12 @@ import { espaco, raio } from '@/theme/tokens';
 
 import { AqiGauge } from './AqiGauge';
 import { Cabecalho } from './Cabecalho';
-import { bboxDoRaio } from './escalas';
+import { bboxDoRaio, nivelArMedido, nivelCalorMedido } from './escalas';
 import { Entrada } from './Entrada';
 import { HourlyStrip } from './HourlyStrip';
 import { OcorrenciasTop } from './OcorrenciasTop';
 import { RainCard } from './RainCard';
+import { WindCard } from './WindCard';
 import { RiskSummary } from './RiskSummary';
 import { SemLocalizacao } from './SemLocalizacao';
 import { TempHero } from './TempHero';
@@ -106,6 +107,17 @@ export function TelaAgora() {
   const carregando =
     localizacao.status === 'carregando' ||
     (temLocalizacao && ambiente.isPending && ambiente.data === undefined);
+
+  // "Perto de você" também considera o que foi medido (ar e calor), não só os relatos
+  const aqiAtual = leitura?.aqi ?? null;
+  const sensacaoAtual = leitura?.sensacao ?? null;
+  const medido = useMemo(
+    () => ({
+      qualidade_ar: nivelArMedido(aqiAtual),
+      calor: nivelCalorMedido(sensacaoAtual),
+    }),
+    [aqiAtual, sensacaoAtual],
+  );
 
   const tentarTudo = () => {
     void ambiente.refetch();
@@ -206,6 +218,7 @@ export function TelaAgora() {
                       erro={ocorrencias.isError}
                       onTentar={() => void ocorrencias.refetch()}
                       onAbrirMapa={abrirMapa}
+                      medido={medido}
                     />
                   </Entrada>
 
@@ -214,6 +227,12 @@ export function TelaAgora() {
                       <AqiGauge aqi={leitura?.aqi ?? null} />
                       <RainCard chuva3h={leitura?.chuva_3h ?? null} />
                     </View>
+                    <WindCard
+                      ventoKmh={leitura?.vento_kmh ?? null}
+                      direcao={leitura?.vento_direcao ?? null}
+                      rajadaKmh={leitura?.rajada_kmh ?? null}
+                      aqi={aqiAtual}
+                    />
                   </Entrada>
 
                   <Entrada indice={6}>
@@ -221,7 +240,10 @@ export function TelaAgora() {
                   </Entrada>
 
                   <Entrada indice={7}>
-                    <HourlyStrip horas={leitura?.proximas_horas ?? null} />
+                    <HourlyStrip
+                      horas={leitura?.proximas_horas ?? null}
+                      agora={leitura?.temperatura ?? null}
+                    />
                   </Entrada>
 
                   <Entrada indice={8}>

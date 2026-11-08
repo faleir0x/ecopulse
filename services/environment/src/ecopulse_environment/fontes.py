@@ -117,7 +117,22 @@ def _montar_leitura(
         chuva_mm_h=chuva_mm_h,
         proximas_horas=proximas_horas,
         chuva_3h=chuva_3h,
+        vento_kmh=_opcional(atual.get("wind_speed_10m")),
+        vento_direcao=_direcao(atual.get("wind_direction_10m")),
+        rajada_kmh=_opcional(atual.get("wind_gusts_10m")),
     )
+
+
+def _opcional(valor: Any) -> float | None:
+    """Número ou None (campo ausente/nulo não derruba a leitura)."""
+    if isinstance(valor, bool) or not isinstance(valor, (int, float)):
+        return None
+    return round(float(valor), 1)
+
+
+def _direcao(valor: Any) -> int | None:
+    numero = _opcional(valor)
+    return None if numero is None else round(numero) % 360
 
 
 def _limitar(valor: float, minimo: float, maximo: float) -> float:
@@ -147,7 +162,8 @@ class FonteIndisponivel(Exception):
 class OpenMeteo:
     """Open-Meteo (gratuita, sem chave). Duas chamadas em paralelo: previsão e qualidade do ar.
 
-    Previsão: current=temperature_2m,apparent_temperature,weather_code,precipitation;
+    Previsão: current=temperature_2m,apparent_temperature,weather_code,precipitation,
+    wind_speed_10m,wind_direction_10m,wind_gusts_10m (km/h; vento é opcional);
     hourly=temperature_2m,weather_code,precipitation com forecast_hours=12;
     daily=temperature_2m_max,temperature_2m_min com forecast_days=1;
     minutely_15=precipitation com forecast_minutely_15=12; timezone=UTC.
@@ -170,7 +186,10 @@ class OpenMeteo:
         parametros_previsao: dict[str, str | int | float] = {
             "latitude": latitude,
             "longitude": longitude,
-            "current": "temperature_2m,apparent_temperature,weather_code,precipitation",
+            "current": (
+                "temperature_2m,apparent_temperature,weather_code,precipitation,"
+                "wind_speed_10m,wind_direction_10m,wind_gusts_10m"
+            ),
             "hourly": "temperature_2m,weather_code,precipitation",
             "forecast_hours": HORAS,
             "daily": "temperature_2m_max,temperature_2m_min",
@@ -216,7 +235,8 @@ class OpenMeteo:
 class Simulador:
     """Valores plausíveis para São Paulo, determinísticos por (geohash5, hora) com `semente`.
 
-    Para a demonstração: `onda_de_calor=True` puxa temperatura para 34–38 °C e AQI para 150–220.
+    Para a demonstração: `onda_de_calor=True` puxa temperatura para 34–38 °C, AQI para 150–220 e
+    vento para 2–6 km/h.
     """
 
     nome = "simulador"
@@ -295,6 +315,11 @@ class Simulador:
             for i in range(HORAS)
         ]
 
+        # Onda de calor vem com ar parado (vento fraco segura a poluição): bom para a demo
+        vento = round(
+            aleatorio.uniform(2.0, 6.0) if self.onda_de_calor else aleatorio.uniform(6.0, 20.0), 1
+        )
+
         return LeituraAmbiente(
             geohash=geohash5,
             latitude=latitude,
@@ -310,4 +335,7 @@ class Simulador:
             chuva_mm_h=chuva_3h[0],
             proximas_horas=proximas_horas,
             chuva_3h=chuva_3h,
+            vento_kmh=vento,
+            vento_direcao=aleatorio.randrange(0, 360, 5),
+            rajada_kmh=round(vento * aleatorio.uniform(1.4, 2.0), 1),
         )

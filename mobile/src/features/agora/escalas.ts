@@ -167,3 +167,21 @@ export function bboxDoRaio(origem: Coordenada, raioM: number): Bbox {
     lonMax: origem.longitude + deltaLon,
   };
 }
+
+/** Ar medido como risco: o AQI "baixo" (bom) não conta; moderado em diante, sim. */
+export function nivelArMedido(aqi: number | null | undefined): Severidade | null {
+  const nivel = nivelAqi(aqi);
+  return nivel === 'baixo' ? null : nivel;
+}
+
+/** Calor medido pela sensação térmica (faixas do índice de calor): < 32 °C não conta. */
+export function nivelCalorMedido(sensacao: number | null | undefined): Severidade | null {
+  if (sensacao === null || sensacao === undefined || !Number.isFinite(sensacao)) return null;
+  if (sensacao >= 41) return 'critico';
+  if (sensacao >= 37) return 'alto';
+  if (sensacao >= 32) return 'moderado';
+  return null;
+}
+
+/** Vento abaixo disso não dispersa a poluição (ar parado). */
+export const VENTO_FRACO_KMH = 10;

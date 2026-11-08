@@ -78,6 +78,10 @@ export type LeituraAmbiente = {
   proximas_horas: HoraPrevista[];
   /** mm/h em 12 intervalos de 15 min (próximas 3 h) */
   chuva_3h: number[];
+  /** Vento a 10 m (km/h); direção em graus de onde sopra. Ausentes em leituras antigas. */
+  vento_kmh?: number | null;
+  vento_direcao?: number | null;
+  rajada_kmh?: number | null;
 };
 
 /** Espelha CelulaAmbiente (GET /v1/ambiente/camada): célula geohash5 com a última leitura. */

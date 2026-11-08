@@ -111,3 +111,7 @@ class LeituraAmbiente(BaseModel):
     chuva_mm_h: float | None  # intensidade atual
     proximas_horas: list[HoraPrevista]  # próximas 12 h
     chuva_3h: list[float]  # mm/h em 12 intervalos de 15 min
+    # Vento a 10 m (km/h); direção em graus DE ONDE sopra (0 = norte). Opcionais: leituras antigas
+    vento_kmh: float | None = None
+    vento_direcao: int | None = None
+    rajada_kmh: float | None = None

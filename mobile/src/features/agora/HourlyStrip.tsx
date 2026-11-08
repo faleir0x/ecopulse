@@ -21,6 +21,8 @@ import { corNaEscala, posicaoNaFaixa } from './escalas';
 
 export type HourlyStripProps = {
   horas: HoraPrevista[] | null;
+  /** Temperatura atual: substitui a da primeira coluna ("Agora"). */
+  agora?: number | null;
 };
 
 const CURVA_SAIDA = Easing.bezier(
@@ -90,7 +92,7 @@ function Capsula({ indice, temperatura, reduzir }: CapsulaProps) {
 }
 
 /** Faixa horizontal das próximas horas (HANDOFF §5.6). */
-export function HourlyStrip({ horas }: HourlyStripProps) {
+export function HourlyStrip({ horas, agora = null }: HourlyStripProps) {
   const { cor, reduzirMovimento } = useTema();
 
   if (!horas || horas.length === 0) {
@@ -109,10 +111,12 @@ export function HourlyStrip({ horas }: HourlyStripProps) {
         contentContainerStyle={styles.conteudo}
       >
         {horas.map((hora, indice) => {
-          const temperatura =
+          // "Agora" usa a temperatura atual (a mesma do topo), não a previsão da hora cheia
+          const prevista =
             typeof hora.temperatura === 'number' && Number.isFinite(hora.temperatura)
               ? hora.temperatura
               : null;
+          const temperatura = indice === 0 && agora !== null ? agora : prevista;
           const codigo = typeof hora.codigo_tempo === 'number' ? hora.codigo_tempo : null;
           const previsao = condicao(codigo, ehNoite(hora.hora));
           const rotulo = horaLocal(hora.hora, indice);

@@ -69,6 +69,15 @@ def chave_ip(ip: str) -> str:
     return f"rl:ip:{{{ip}}}"
 
 
+# Busca de local: o app espera 400 ms entre teclas, mas uma busca ainda gera algumas chamadas
+CAPACIDADE_LOCAL = 30
+TOKENS_POR_SEGUNDO_LOCAL = 0.5
+
+
+def chave_local(ip: str) -> str:
+    return f"rl:local:{{{ip}}}"
+
+
 def chave_rota(ip: str) -> str:
     return f"rl:rota:{{{ip}}}"
 
@@ -132,3 +141,13 @@ async def consumir_rota(
 ) -> Resultado:
     """Tenta gastar 1 token de rota do IP de origem."""
     return await _consumir(redis, chave_rota(ip), capacidade, tokens_por_segundo, {"ip": ip})
+
+
+async def consumir_local(
+    redis: RedisCluster,
+    ip: str,
+    capacidade: int = CAPACIDADE_LOCAL,
+    tokens_por_segundo: float = TOKENS_POR_SEGUNDO_LOCAL,
+) -> Resultado:
+    """Tenta gastar 1 token de busca de local do IP de origem."""
+    return await _consumir(redis, chave_local(ip), capacidade, tokens_por_segundo, {"ip": ip})

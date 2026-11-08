@@ -15,10 +15,11 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from redis.asyncio.cluster import RedisCluster
 from redis.exceptions import RedisError
 
-from ecopulse_api import invalidacao, leitura, limite, rotas
+from ecopulse_api import invalidacao, leitura, limite, locais, rotas
 from ecopulse_api.schemas import (
     CelulaAmbiente,
     ConfirmacaoIn,
+    LocalEncontrado,
     ModoRota,
     OcorrenciaDetalhe,
     RelatoAceito,
@@ -281,6 +282,44 @@ async def ler_ambiente(
     if resultado is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "sem leitura")
     return resultado
+
+
+@app.get("/v1/locais")
+async def buscar_locais(
+    request: Request,
+    q: Annotated[str, Query(min_length=locais.TAMANHO_MINIMO, max_length=locais.TAMANHO_MAXIMO)],
+    cliente_ors: Annotated[httpx.AsyncClient, Depends(rotas.obter_cliente_ors)],
+    settings: Annotated[Settings, Depends(rotas.obter_settings)],
+    perto: Annotated[str | None, Query(description="lat,lon de referência")] = None,
+) -> list[LocalEncontrado]:
+    """Bairros/endereços no Brasil para quem está sem GPS (geocodificação do ORS, cache 1 dia)."""
+    if not settings.ors_api_key:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "busca indisponível")
+    referencia: tuple[float, float] | None = None
+    if perto:
+        try:
+            referencia = rotas.parse_coordenada(perto)
+        except rotas.CoordenadaInvalida as exc:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+    ip = _ip_cliente(request)
+    _exigir_limite(
+        await limite.consumir_local(_redis(request), ip), "muitas buscas deste IP", {"ip": ip}
+    )
+    try:
+        return await locais.buscar(
+            _redis(request),
+            cliente_ors,
+            q,
+            chave=settings.ors_api_key,
+            base_url=settings.ors_url,
+            perto=referencia,
+        )
+    except locais.BuscaIndisponivel as exc:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "busca indisponível",
+            headers={"Retry-After": "10"},
+        ) from exc
 
 
 @app.get("/v1/rotas")

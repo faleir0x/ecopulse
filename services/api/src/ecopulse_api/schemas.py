@@ -104,3 +104,12 @@ class CelulaAmbiente(BaseModel):
     temperatura: float | None
     aqi: int | None
     medido_em: datetime
+
+
+class LocalEncontrado(BaseModel):
+    """Resultado da busca de bairro/endereço (GET /v1/locais)."""
+
+    nome: str
+    detalhe: str | None
+    latitude: float
+    longitude: float

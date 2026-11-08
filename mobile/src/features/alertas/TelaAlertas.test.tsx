@@ -16,6 +16,12 @@ const mockNavigate = router.navigate as jest.Mock;
 
 let mockAlertas: ItemAlerta[] = [];
 
+let mockPermissao = 'concedida';
+const mockAtivar = jest.fn();
+jest.mock('./permissao', () => ({
+  usePermissaoNotificacao: () => ({ permissao: mockPermissao, ativar: mockAtivar }),
+}));
+
 jest.mock('@/state/alertas', () => ({
   useAlertas: () => ({
     alertas: mockAlertas,
@@ -123,5 +129,26 @@ describe('TelaAlertas', () => {
 
     expect(queryByText('1 novo')).toBeNull();
     expect(queryByText(/novos?$/)).toBeNull();
+  });
+});
+
+describe('TelaAlertas com notificações desligadas', () => {
+  afterEach(() => {
+    mockPermissao = 'concedida';
+  });
+
+  it('mostra o aviso e ativa ao tocar', async () => {
+    mockPermissao = 'negada';
+    const { getByText } = await montar();
+
+    expect(getByText('Notificações desligadas')).toBeTruthy();
+    fireEvent.press(getByText('Ativar'));
+    expect(mockAtivar).toHaveBeenCalled();
+  });
+
+  it('não mostra o aviso com permissão concedida', async () => {
+    const { queryByText } = await montar();
+
+    expect(queryByText('Notificações desligadas')).toBeNull();
   });
 });

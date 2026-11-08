@@ -1,22 +1,25 @@
 import { router } from 'expo-router';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Card, EmptyRow, T } from '@/components';
 import { ALTURA_TAB_BAR } from '@/components/TabBar';
 import { tempoRelativo } from '@/features/mapa/tempo';
+import { Icon } from '@/icons/Icon';
 import { useAlertas } from '@/state/alertas';
 import { useTema } from '@/theme/tema';
-import { espaco } from '@/theme/tokens';
+import { espaco, raio, tamanho } from '@/theme/tokens';
 
 import { agruparAlertas } from './agrupar';
 import { AlertRow } from './AlertRow';
+import { usePermissaoNotificacao } from './permissao';
 
 export function TelaAlertas() {
   const { alertas, conexao, abrir } = useAlertas();
   const { cor } = useTema();
   const insets = useSafeAreaInsets();
   const grupos = agruparAlertas(alertas);
+  const { permissao, ativar } = usePermissaoNotificacao();
 
   return (
     <ScrollView
@@ -33,6 +36,27 @@ export function TelaAlertas() {
       </View>
 
       <View style={styles.conteudo}>
+        {permissao === 'negada' ? (
+          <Card estilo={styles.desligadas}>
+            <Icon name="bell-off" tamanho={tamanho.icon} cor={cor.textPrimary} />
+            <T estilo="headline" cromo numberOfLines={2} style={styles.desligadasTexto}>
+              Notificações desligadas
+            </T>
+            <Pressable
+              onPress={() => void ativar()}
+              accessibilityRole="button"
+              style={({ pressed }) => [
+                styles.ativar,
+                { backgroundColor: cor.ink, transform: [{ scale: pressed ? 0.97 : 1 }] },
+              ]}
+            >
+              <T estilo="headline" cromo style={[styles.ativarTexto, { color: cor.onInk }]}>
+                Ativar
+              </T>
+            </Pressable>
+          </Card>
+        ) : null}
+
         {conexao !== 'conectado' ? (
           <T
             estilo="caption"
@@ -103,6 +127,32 @@ const styles = StyleSheet.create({
   },
   conteudo: {
     paddingHorizontal: espaco.gutter,
+  },
+  desligadas: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: espaco.md,
+    paddingVertical: espaco.md,
+    paddingLeft: 14,
+    paddingRight: espaco.md,
+    marginTop: espaco.sm,
+  },
+  desligadasTexto: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 15,
+    lineHeight: 20,
+  },
+  ativar: {
+    height: tamanho.touch,
+    paddingHorizontal: espaco.lg,
+    borderRadius: raio.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ativarTexto: {
+    fontSize: 15,
+    lineHeight: 20,
   },
   reconectando: {
     paddingHorizontal: espaco.xs,

@@ -31,6 +31,15 @@ class ConfirmacaoIn(BaseModel):
     registrado_em: datetime
 
 
+class SituacaoRelato(BaseModel):
+    """Em qual ocorrência o relato do próprio aparelho entrou. Nunca expõe o device_id."""
+
+    client_id: UUID
+    ocorrencia_id: int | None
+    status_ocorrencia: Literal["ativa", "expirada"] | None
+    confirmacoes: int | None
+
+
 class OcorrenciaDetalhe(OcorrenciaPayload):
     """Ocorrência + o que só o detalhe mostra: quando foi confirmada e a nota mais recente."""
 

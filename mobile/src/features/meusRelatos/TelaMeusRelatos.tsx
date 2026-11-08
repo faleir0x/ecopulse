@@ -18,7 +18,7 @@ type Visualizador = { midias: MidiaLocal[]; indice: number };
 
 export function TelaMeusRelatos() {
   const { meus, encerrar } = useRelatos();
-  const { setRelatarAberto } = useUi();
+  const { setRelatarAberto, setOcorrenciaFoco } = useUi();
   const { cor } = useTema();
   const insets = useSafeAreaInsets();
   const [visualizador, setVisualizador] = useState<Visualizador | null>(null);
@@ -26,6 +26,11 @@ export function TelaMeusRelatos() {
   const relatar = () => {
     setRelatarAberto(true);
     router.back();
+  };
+
+  const abrirNoMapa = (ocorrenciaId: number) => {
+    setOcorrenciaFoco(ocorrenciaId);
+    router.navigate('/mapa');
   };
 
   return (
@@ -62,6 +67,7 @@ export function TelaMeusRelatos() {
                   relato={relato}
                   onEncerrar={encerrar}
                   onAbrirMidia={(midias, posicao) => setVisualizador({ midias, indice: posicao })}
+                  onAbrir={abrirNoMapa}
                 />
               </View>
             ))}

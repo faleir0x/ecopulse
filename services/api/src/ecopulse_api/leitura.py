@@ -9,12 +9,13 @@ Se o Redis falhar, a leitura cai direto no banco (log de warning) — o cache nu
 import json
 import logging
 import math
+from uuid import UUID
 
 import asyncpg
 from redis.asyncio.cluster import RedisCluster
 from redis.exceptions import RedisError
 
-from ecopulse_api.schemas import OcorrenciaDetalhe
+from ecopulse_api.schemas import OcorrenciaDetalhe, SituacaoRelato
 from ecopulse_common import geohash
 from ecopulse_common.events import LeituraAmbiente, OcorrenciaPayload, Severidade, TipoRisco
 
@@ -215,6 +216,32 @@ async def buscar_ocorrencia(pool: asyncpg.Pool, ocorrencia_id: int) -> Ocorrenci
             ocorrencia_id,
         )
     return _ocorrencia_da_linha(linha) if linha is not None else None
+
+
+async def buscar_situacao_relato(pool: asyncpg.Pool, client_id: UUID) -> SituacaoRelato | None:
+    """Relato do próprio aparelho e a ocorrência em que entrou (LEFT JOIN: pode ainda não ter
+    ocorrência, mesmo já gravado). None = o processor ainda não gravou o relato."""
+    async with pool.acquire() as conn:
+        linha = await conn.fetchrow(
+            """
+            SELECT
+                r.client_id, r.ocorrencia_id,
+                o.status AS status_ocorrencia,
+                o.confirmacoes
+            FROM relatos r
+            LEFT JOIN ocorrencias o ON o.id = r.ocorrencia_id
+            WHERE r.client_id = $1
+            """,
+            client_id,
+        )
+    if linha is None:
+        return None
+    return SituacaoRelato(
+        client_id=linha["client_id"],
+        ocorrencia_id=linha["ocorrencia_id"],
+        status_ocorrencia=linha["status_ocorrencia"],
+        confirmacoes=linha["confirmacoes"],
+    )
 
 
 LIMITE_LINHA_DO_TEMPO = 30

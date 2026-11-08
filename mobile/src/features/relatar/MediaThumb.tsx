@@ -11,13 +11,24 @@ import { raio } from '@/theme/tokens';
 export type MediaThumbProps = {
   midia: MidiaLocal;
   indice: number;
-  onRemover: (indice: number) => void;
+  tamanho?: number;
+  removivel?: boolean;
+  onRemover?: (indice: number) => void;
   onAbrir: (indice: number) => void;
 };
 
-export function MediaThumb({ midia, indice, onRemover, onAbrir }: MediaThumbProps) {
+export function MediaThumb({
+  midia,
+  indice,
+  tamanho = 64,
+  removivel = true,
+  onRemover,
+  onAbrir,
+}: MediaThumbProps) {
   const { cor, reduzirMovimento } = useTema();
   const escala = useSharedValue(reduzirMovimento ? 1 : 0);
+  const borda = Math.round(tamanho * (14 / 64));
+  const podeRemover = removivel && onRemover !== undefined;
 
   useEffect(() => {
     if (reduzirMovimento) {
@@ -34,12 +45,15 @@ export function MediaThumb({ midia, indice, onRemover, onAbrir }: MediaThumbProp
   const estiloPop = useAnimatedStyle(() => ({ transform: [{ scale: escala.value }] }));
 
   return (
-    <Animated.View style={[styles.caixa, estiloPop]}>
+    <Animated.View style={[styles.caixa, { width: tamanho, height: tamanho }, estiloPop]}>
       <Pressable
         onPress={() => onAbrir(indice)}
         accessibilityRole="button"
         accessibilityLabel={`Abrir ${midia.tipo === 'video' ? 'vídeo' : 'foto'} ${indice + 1}`}
-        style={[styles.miniatura, { backgroundColor: cor.surfaceMuted }]}
+        style={[
+          styles.miniatura,
+          { width: tamanho, height: tamanho, borderRadius: borda, backgroundColor: cor.surfaceMuted },
+        ]}
       >
         {midia.tipo === 'video' ? (
           <View style={[styles.video, { backgroundColor: cor.surfaceStrong }]}>
@@ -49,30 +63,26 @@ export function MediaThumb({ midia, indice, onRemover, onAbrir }: MediaThumbProp
           <Image source={{ uri: midia.uri }} style={styles.imagem} contentFit="cover" />
         )}
       </Pressable>
-      <Pressable
-        onPress={() => onRemover(indice)}
-        accessibilityRole="button"
-        accessibilityLabel="Remover mídia"
-        hitSlop={0}
-        style={styles.remover}
-      >
-        <View style={[styles.removerCirculo, { backgroundColor: cor.textPrimary }]}>
-          <Icon name="close" tamanho={14} cor={cor.background} />
-        </View>
-      </Pressable>
+      {podeRemover ? (
+        <Pressable
+          onPress={() => onRemover(indice)}
+          accessibilityRole="button"
+          accessibilityLabel="Remover mídia"
+          hitSlop={0}
+          style={styles.remover}
+        >
+          <View style={[styles.removerCirculo, { backgroundColor: cor.textPrimary }]}>
+            <Icon name="close" tamanho={14} cor={cor.background} />
+          </View>
+        </Pressable>
+      ) : null}
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
-  caixa: {
-    width: 64,
-    height: 64,
-  },
+  caixa: {},
   miniatura: {
-    width: 64,
-    height: 64,
-    borderRadius: 14,
     overflow: 'hidden',
   },
   imagem: {

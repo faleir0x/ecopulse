@@ -14,7 +14,13 @@ from redis.asyncio.cluster import RedisCluster
 from redis.exceptions import RedisError
 
 from ecopulse_api import invalidacao, leitura, limite
-from ecopulse_api.schemas import ConfirmacaoIn, OcorrenciaDetalhe, RelatoAceito, RelatoIn
+from ecopulse_api.schemas import (
+    ConfirmacaoIn,
+    OcorrenciaDetalhe,
+    RelatoAceito,
+    RelatoIn,
+    SituacaoRelato,
+)
 from ecopulse_common import geohash, messaging
 from ecopulse_common.ambiente import registrar_interesse
 from ecopulse_common.cache import create_cluster
@@ -79,16 +85,28 @@ def _redis(request: Request) -> RedisCluster:
     return redis
 
 
-async def _aplicar_limite(request: Request, device_id: UUID) -> None:
-    """429 com Retry-After se o aparelho estourou o token bucket."""
-    resultado = await limite.consumir(_redis(request), device_id)
+def _exigir_limite(resultado: limite.Resultado, mensagem: str, contexto: dict[str, str]) -> None:
+    """429 com Retry-After quando o token bucket não liberou."""
     if not resultado.permitido:
-        log.warning("rate limit excedido", extra={"device_id": str(device_id)})
+        log.warning("rate limit excedido", extra=contexto)
         raise HTTPException(
             status.HTTP_429_TOO_MANY_REQUESTS,
-            "muitos relatos deste aparelho",
+            mensagem,
             headers={"Retry-After": str(resultado.retry_after_s)},
         )
+
+
+async def _aplicar_limite(request: Request, device_id: UUID) -> None:
+    """Limita pelo aparelho e pelo IP de origem (request.client.host, sem X-Forwarded-For)."""
+    resultado_aparelho = await limite.consumir(_redis(request), device_id)
+    _exigir_limite(
+        resultado_aparelho,
+        "muitos relatos deste aparelho",
+        {"device_id": str(device_id)},
+    )
+    ip = request.client.host if request.client is not None else "desconhecido"
+    resultado_ip = await limite.consumir_ip(_redis(request), ip)
+    _exigir_limite(resultado_ip, "muitos relatos deste IP", {"ip": ip})
 
 
 async def _publicar_relato(request: Request, relato: RelatoRecebido) -> None:
@@ -132,6 +150,15 @@ async def criar_relato(relato: RelatoIn, request: Request) -> RelatoAceito:
     await _aplicar_limite(request, relato.device_id)
     await _publicar_relato(request, RelatoRecebido(**relato.model_dump()))
     return RelatoAceito(client_id=relato.client_id)
+
+
+@app.get("/v1/relatos/{client_id}")
+async def situacao_relato(client_id: UUID, request: Request) -> SituacaoRelato:
+    """Em qual ocorrência o próprio relato entrou. 404 "processando" até o processor gravar."""
+    situacao = await leitura.buscar_situacao_relato(_pool(request), client_id)
+    if situacao is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "processando")
+    return situacao
 
 
 @app.get("/v1/ocorrencias")

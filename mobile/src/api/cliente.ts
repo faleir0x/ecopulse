@@ -1,6 +1,13 @@
 /** Cliente HTTP da API (docs/ARQUITETURA.md, seção API). */
 import { endpoints } from '@/config/endpoints';
-import type { LeituraAmbiente, Ocorrencia, OcorrenciaDetalhe, Severidade, TipoRisco } from '@/domain/tipos';
+import type {
+  LeituraAmbiente,
+  Ocorrencia,
+  OcorrenciaDetalhe,
+  Severidade,
+  SituacaoRelato,
+  TipoRisco,
+} from '@/domain/tipos';
 import type { Bbox } from '@/lib/geohash';
 
 export const TIMEOUT_MS = 10_000;
@@ -171,6 +178,24 @@ export async function confirmarOcorrencia(id: number, corpo: ConfirmacaoEnvio, o
     op,
     false,
   );
+}
+
+/** GET /v1/relatos/{client_id}. null = 404 "processando" (o processor ainda não gravou). */
+export async function buscarSituacaoRelato(
+  clientId: string,
+  op: Opcoes = {},
+): Promise<SituacaoRelato | null> {
+  try {
+    return await pedir<SituacaoRelato>(
+      `/v1/relatos/${encodeURIComponent(clientId)}`,
+      { method: 'GET' },
+      op,
+      true,
+    );
+  } catch (erro) {
+    if (erro instanceof ApiErro && erro.status === 404) return null;
+    throw erro;
+  }
 }
 
 export { endpoints };

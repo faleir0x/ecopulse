@@ -21,6 +21,10 @@ log = logging.getLogger(__name__)
 CAPACIDADE = 10
 TOKENS_POR_SEGUNDO = 1 / 30
 
+# Por IP: 60 relatos em rajada; depois, 1 por segundo
+CAPACIDADE_IP = 60
+TOKENS_POR_SEGUNDO_IP = 1.0
+
 _SCRIPT = """
 local capacidade = tonumber(ARGV[1])
 local taxa = tonumber(ARGV[2])
@@ -58,6 +62,29 @@ def chave(device_id: UUID) -> str:
     return f"rl:{{{device_id}}}"
 
 
+def chave_ip(ip: str) -> str:
+    return f"rl:ip:{{{ip}}}"
+
+
+async def _consumir(
+    redis: RedisCluster,
+    chave_balde: str,
+    capacidade: int,
+    tokens_por_segundo: float,
+    contexto: dict[str, str],
+) -> Resultado:
+    try:
+        permitido, espera = await redis.eval(
+            _SCRIPT, 1, chave_balde, capacidade, tokens_por_segundo
+        )
+    except RedisError:
+        log.warning("rate limit indisponível; liberando", extra=contexto)
+        return Resultado(permitido=True, retry_after_s=0)
+    if int(permitido):
+        return Resultado(permitido=True, retry_after_s=0)
+    return Resultado(permitido=False, retry_after_s=max(1, math.ceil(float(espera))))
+
+
 async def consumir(
     redis: RedisCluster,
     device_id: UUID,
@@ -65,13 +92,26 @@ async def consumir(
     tokens_por_segundo: float = TOKENS_POR_SEGUNDO,
 ) -> Resultado:
     """Tenta gastar 1 token do aparelho."""
-    try:
-        permitido, espera = await redis.eval(
-            _SCRIPT, 1, chave(device_id), capacidade, tokens_por_segundo
-        )
-    except RedisError:
-        log.warning("rate limit indisponível; liberando", extra={"device_id": str(device_id)})
-        return Resultado(permitido=True, retry_after_s=0)
-    if int(permitido):
-        return Resultado(permitido=True, retry_after_s=0)
-    return Resultado(permitido=False, retry_after_s=max(1, math.ceil(float(espera))))
+    return await _consumir(
+        redis,
+        chave(device_id),
+        capacidade,
+        tokens_por_segundo,
+        {"device_id": str(device_id)},
+    )
+
+
+async def consumir_ip(
+    redis: RedisCluster,
+    ip: str,
+    capacidade: int = CAPACIDADE_IP,
+    tokens_por_segundo: float = TOKENS_POR_SEGUNDO_IP,
+) -> Resultado:
+    """Tenta gastar 1 token do IP de origem (request.client.host, sem confiar em proxy)."""
+    return await _consumir(
+        redis,
+        chave_ip(ip),
+        capacidade,
+        tokens_por_segundo,
+        {"ip": ip},
+    )

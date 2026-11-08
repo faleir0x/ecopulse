@@ -1,4 +1,5 @@
 import { fireEvent, render } from '@testing-library/react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { useEffect } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
@@ -51,6 +52,10 @@ jest.mock('expo-image-picker', () => ({
   requestMediaLibraryPermissionsAsync: jest.fn(async () => ({ status: 'granted' })),
   launchCameraAsync: jest.fn(),
   launchImageLibraryAsync: jest.fn(),
+}));
+
+jest.mock('expo-linking', () => ({
+  openSettings: jest.fn(async () => undefined),
 }));
 
 jest.mock('expo-image', () => ({ Image: () => null }));
@@ -218,5 +223,79 @@ describe('MediaPicker', () => {
     expect(getByLabelText('Foto · 2/3').props.accessibilityState).toEqual(
       expect.objectContaining({ disabled: false }),
     );
+  });
+
+  it('mostra e recolhe as opções ao tocar em Foto', async () => {
+    const { getByLabelText, queryByLabelText } = await render(
+      <TemaProvider inicial="escuro">
+        <MediaPicker
+          midias={[]}
+          notaAberta={false}
+          onToggleNota={jest.fn()}
+          onAdicionar={jest.fn()}
+          onRemover={jest.fn()}
+          onAbrir={jest.fn()}
+        />
+      </TemaProvider>,
+    );
+
+    expect(queryByLabelText('Câmera')).toBeNull();
+
+    await fireEvent.press(getByLabelText('Foto'));
+    expect(getByLabelText('Câmera')).toBeTruthy();
+    expect(getByLabelText('Galeria')).toBeTruthy();
+
+    await fireEvent.press(getByLabelText('Foto'));
+    expect(queryByLabelText('Câmera')).toBeNull();
+    expect(queryByLabelText('Galeria')).toBeNull();
+  });
+
+  it('mostra a linha de permissão negada sem diálogo nativo', async () => {
+    (ImagePicker.requestCameraPermissionsAsync as jest.Mock).mockResolvedValueOnce({
+      status: 'denied',
+    });
+
+    const { getByLabelText, findByText } = await render(
+      <TemaProvider inicial="escuro">
+        <MediaPicker
+          midias={[]}
+          notaAberta={false}
+          onToggleNota={jest.fn()}
+          onAdicionar={jest.fn()}
+          onRemover={jest.fn()}
+          onAbrir={jest.fn()}
+        />
+      </TemaProvider>,
+    );
+
+    await fireEvent.press(getByLabelText('Foto'));
+    await fireEvent.press(getByLabelText('Câmera'));
+
+    expect(await findByText(/Sem acesso à câmera/)).toBeTruthy();
+    expect(getByLabelText('Ativar nas configurações')).toBeTruthy();
+  });
+
+  it('mostra a linha de falha quando a mídia não abre', async () => {
+    (ImagePicker.requestCameraPermissionsAsync as jest.Mock).mockRejectedValueOnce(
+      new Error('falhou'),
+    );
+
+    const { getByLabelText, findByText } = await render(
+      <TemaProvider inicial="escuro">
+        <MediaPicker
+          midias={[]}
+          notaAberta={false}
+          onToggleNota={jest.fn()}
+          onAdicionar={jest.fn()}
+          onRemover={jest.fn()}
+          onAbrir={jest.fn()}
+        />
+      </TemaProvider>,
+    );
+
+    await fireEvent.press(getByLabelText('Foto'));
+    await fireEvent.press(getByLabelText('Câmera'));
+
+    expect(await findByText('Não abriu. Tente de novo.')).toBeTruthy();
   });
 });

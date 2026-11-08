@@ -1,4 +1,5 @@
-import { StyleSheet, View } from 'react-native';
+import { useState } from 'react';
+import { Pressable, StyleSheet, View } from 'react-native';
 
 import { Pill } from '@/components/Pill';
 import { T } from '@/components/T';
@@ -12,7 +13,8 @@ import { useTema } from '@/theme/tema';
 import { espaco, raio } from '@/theme/tokens';
 
 import { formatarCoordenadas } from './formato';
-import { MiniaturaMidia } from './MiniaturaMidia';
+import { MediaThumb } from '@/features/relatar/MediaThumb';
+import { useSituacaoRelato } from './useSituacaoRelato';
 
 export const STATUS_RELATO: Record<StatusRelato, { rotulo: string; icone: NomeIcone }> = {
   pendente: { rotulo: 'Na fila', icone: 'history' },
@@ -25,15 +27,56 @@ export type RelatoRowProps = {
   relato: RelatoLocal;
   onEncerrar: (clientId: string) => void;
   onAbrirMidia: (midias: MidiaLocal[], indice: number) => void;
+  /** Abre o detalhe da ocorrência em que o relato entrou. */
+  onAbrir: (ocorrenciaId: number) => void;
 };
 
-export function RelatoRow({ relato, onEncerrar, onAbrirMidia }: RelatoRowProps) {
+/** Depois disso, sem resposta do servidor o relato aparece como "Sem detalhes". */
+export const JANELA_PROCESSAMENTO_MS = 2 * 60_000;
+
+export function RelatoRow({ relato, onEncerrar, onAbrirMidia, onAbrir }: RelatoRowProps) {
   const { cor, sev } = useTema();
   const status = STATUS_RELATO[relato.status];
   const podeEncerrar = relato.status === 'pendente' || relato.status === 'enviado';
+  const { data: situacao } = useSituacaoRelato(relato.client_id, relato.status);
+
+  // O processor grava em segundos; 404 por mais tempo que isso não é "processando"
+  const [abertoEm] = useState(() => Date.now());
+  const recemEnviado = relato.enviado_em !== null && abertoEm - relato.enviado_em < JANELA_PROCESSAMENTO_MS;
+  const processando = situacao === null && recemEnviado;
+  const semDetalhes = situacao === null && !recemEnviado;
+  const expirada = situacao?.status_ocorrencia === 'expirada';
+  const ocorrenciaId = situacao?.ocorrencia_id ?? null;
+  const podeAbrir =
+    ocorrenciaId !== null &&
+    situacao?.status_ocorrencia === 'ativa' &&
+    relato.status !== 'pendente' &&
+    relato.status !== 'rejeitado';
+
+  const rotuloStatus = expirada
+    ? STATUS_RELATO.encerrado.rotulo
+    : processando
+      ? 'Processando…'
+      : semDetalhes
+        ? 'Sem detalhes'
+        : status.rotulo;
+  const iconeStatus = expirada ? STATUS_RELATO.encerrado.icone : status.icone;
+  const confirmacoes = situacao?.confirmacoes ?? null;
+  const rotuloConfirmacoes =
+    confirmacoes !== null && confirmacoes > 0
+      ? `${confirmacoes} ${confirmacoes === 1 ? 'confirmação' : 'confirmações'}`
+      : null;
 
   return (
-    <View style={styles.linha}>
+    <Pressable
+      onPress={() => {
+        if (podeAbrir && ocorrenciaId !== null) onAbrir(ocorrenciaId);
+      }}
+      disabled={!podeAbrir}
+      accessibilityRole="button"
+      accessibilityLabel={`Relato de ${ROTULO_TIPO[relato.tipo]}`}
+      style={({ pressed }) => [styles.linha, pressed && podeAbrir ? styles.pressionado : null]}
+    >
       <View style={[styles.tile, { backgroundColor: cor.surfaceMuted }]}>
         <TypeIcon tipo={relato.tipo} />
       </View>
@@ -52,10 +95,15 @@ export function RelatoRow({ relato, onEncerrar, onAbrirMidia }: RelatoRowProps) 
         </T>
 
         <View style={styles.status}>
-          <Icon name={status.icone} tamanho={14} cor={cor.textTertiary} />
+          <Icon name={iconeStatus} tamanho={14} cor={cor.textTertiary} />
           <T estilo="caption" cor="textTertiary" numberOfLines={1}>
-            {status.rotulo}
+            {rotuloStatus}
           </T>
+          {rotuloConfirmacoes ? (
+            <T estilo="caption" cor="textTertiary" numberOfLines={1}>
+              {rotuloConfirmacoes}
+            </T>
+          ) : null}
         </View>
 
         {relato.status === 'rejeitado' && relato.ultimo_erro ? (
@@ -67,11 +115,13 @@ export function RelatoRow({ relato, onEncerrar, onAbrirMidia }: RelatoRowProps) 
         {relato.midias.length > 0 ? (
           <View style={styles.midias}>
             {relato.midias.map((midia, indice) => (
-              <MiniaturaMidia
+              <MediaThumb
                 key={`${midia.uri}-${indice}`}
                 midia={midia}
                 indice={indice}
-                onPress={() => onAbrirMidia(relato.midias, indice)}
+                tamanho={48}
+                removivel={false}
+                onAbrir={() => onAbrirMidia(relato.midias, indice)}
               />
             ))}
           </View>
@@ -81,7 +131,7 @@ export function RelatoRow({ relato, onEncerrar, onAbrirMidia }: RelatoRowProps) 
       {podeEncerrar ? (
         <Pill rotulo="Já passou" onPress={() => onEncerrar(relato.client_id)} />
       ) : null}
-    </View>
+    </Pressable>
   );
 }
 
@@ -93,6 +143,9 @@ const styles = StyleSheet.create({
     paddingVertical: espaco.md,
     paddingHorizontal: espaco.gutter,
     minHeight: 64,
+  },
+  pressionado: {
+    opacity: 0.7,
   },
   tile: {
     width: 40,

@@ -1,26 +1,52 @@
 import * as ImagePicker from 'expo-image-picker';
-import { Alert, Pressable, StyleSheet, View } from 'react-native';
+import * as Linking from 'expo-linking';
+import { useEffect, useState } from 'react';
+import { Pressable, StyleSheet, View } from 'react-native';
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 
-import { T } from '@/components';
+import { Pill, T } from '@/components';
 import type { MidiaLocal } from '@/data/outbox';
 import { Icon } from '@/icons/Icon';
 import type { NomeIcone } from '@/icons';
 import { useTema } from '@/theme/tema';
-import { espaco, raio, tamanho } from '@/theme/tokens';
+import { espaco, movimento, raio, tamanho } from '@/theme/tokens';
 
 import { MediaThumb } from './MediaThumb';
 
 export const MAX_MIDIAS = 3;
 
+const CURVA_ENTRADA = Easing.bezier(
+  movimento.curvas.out[0],
+  movimento.curvas.out[1],
+  movimento.curvas.out[2],
+  movimento.curvas.out[3],
+);
+const DESLOCAMENTO_ENTRADA = 8;
+
+type ErroMidia = 'camera' | 'galeria' | 'falha';
+
 type BotaoExtraProps = {
   icone: NomeIcone;
   rotulo: string;
   ativo?: boolean;
+  expandido?: boolean;
   desabilitado?: boolean;
   onPress: () => void;
 };
 
-function BotaoExtra({ icone, rotulo, ativo = false, desabilitado = false, onPress }: BotaoExtraProps) {
+function BotaoExtra({
+  icone,
+  rotulo,
+  ativo = false,
+  expandido,
+  desabilitado = false,
+  onPress,
+}: BotaoExtraProps) {
   const { cor } = useTema();
   const frente = ativo ? cor.textPrimary : cor.textSecondary;
 
@@ -30,7 +56,7 @@ function BotaoExtra({ icone, rotulo, ativo = false, desabilitado = false, onPres
       disabled={desabilitado}
       accessibilityRole="button"
       accessibilityLabel={rotulo}
-      accessibilityState={{ disabled: desabilitado }}
+      accessibilityState={{ disabled: desabilitado, expanded: expandido }}
       style={({ pressed }) => [
         styles.extra,
         {
@@ -44,6 +70,65 @@ function BotaoExtra({ icone, rotulo, ativo = false, desabilitado = false, onPres
         {rotulo}
       </T>
     </Pressable>
+  );
+}
+
+function OpcoesMidia({
+  onCamera,
+  onGaleria,
+}: {
+  onCamera: () => void;
+  onGaleria: () => void;
+}) {
+  const { reduzirMovimento } = useTema();
+  const opacidade = useSharedValue(0);
+  const deslocamento = useSharedValue(reduzirMovimento ? 0 : DESLOCAMENTO_ENTRADA);
+
+  useEffect(() => {
+    const duracao = reduzirMovimento ? 180 : 220;
+    opacidade.value = withTiming(1, { duration: duracao, easing: CURVA_ENTRADA });
+    deslocamento.value = reduzirMovimento
+      ? 0
+      : withTiming(0, { duration: duracao, easing: CURVA_ENTRADA });
+  }, [reduzirMovimento, opacidade, deslocamento]);
+
+  const estiloEntrada = useAnimatedStyle(() => ({
+    opacity: opacidade.value,
+    transform: [{ translateY: deslocamento.value }],
+  }));
+
+  return (
+    <Animated.View style={[styles.opcoes, estiloEntrada]}>
+      <Pill rotulo="Câmera" icone="camera-minimalistic" onPress={onCamera} />
+      <Pill rotulo="Galeria" icone="gallery-minimalistic" onPress={onGaleria} />
+    </Animated.View>
+  );
+}
+
+function LinhaErro({ erro }: { erro: ErroMidia }) {
+  if (erro === 'falha') {
+    return (
+      <T estilo="caption" cor="textSecondary" style={styles.erro}>
+        Não abriu. Tente de novo.
+      </T>
+    );
+  }
+
+  return (
+    <T estilo="caption" cor="textSecondary" style={styles.erro}>
+      {erro === 'camera' ? 'Sem acesso à câmera' : 'Sem acesso às fotos'} ·{' '}
+      <T
+        estilo="caption"
+        cor="textSecondary"
+        onPress={() => void Linking.openSettings()}
+        accessibilityRole="button"
+        accessibilityLabel="Ativar nas configurações"
+        style={styles.ativar}
+      >
+        Ativar
+      </T>{' '}
+      nas configurações
+    </T>
   );
 }
 
@@ -71,11 +156,16 @@ export function MediaPicker({
   const cheio = midias.length >= MAX_MIDIAS;
   const rotuloFoto = midias.length > 0 ? `Foto · ${midias.length}/${MAX_MIDIAS}` : 'Foto';
 
+  const [opcoesAbertas, setOpcoesAbertas] = useState(false);
+  const [erro, setErro] = useState<ErroMidia | null>(null);
+
   const escolher = async (origem: 'camera' | 'galeria') => {
     const restantes = MAX_MIDIAS - midias.length;
     if (restantes <= 0) {
       return;
     }
+
+    setErro(null);
 
     try {
       const permissao =
@@ -84,12 +174,7 @@ export function MediaPicker({
           : await ImagePicker.requestMediaLibraryPermissionsAsync();
 
       if (permissao.status !== 'granted') {
-        Alert.alert(
-          'Permissão necessária',
-          origem === 'camera'
-            ? 'Autorize a câmera para tirar fotos e vídeos.'
-            : 'Autorize o acesso às fotos para escolher mídias.',
-        );
+        setErro(origem);
         return;
       }
 
@@ -116,19 +201,16 @@ export function MediaPicker({
         onAdicionar(novas);
       }
     } catch {
-      Alert.alert('Não foi possível abrir a mídia', 'Tente de novo.');
+      setErro('falha');
     }
   };
 
-  const abrirOpcoes = () => {
+  const alternarOpcoes = () => {
     if (cheio) {
       return;
     }
-    Alert.alert('Foto', 'Escolha a origem', [
-      { text: 'Câmera', onPress: () => void escolher('camera') },
-      { text: 'Galeria', onPress: () => void escolher('galeria') },
-      { text: 'Cancelar', style: 'cancel' },
-    ]);
+    setErro(null);
+    setOpcoesAbertas((aberta) => !aberta);
   };
 
   return (
@@ -137,9 +219,10 @@ export function MediaPicker({
         <BotaoExtra
           icone="camera-minimalistic"
           rotulo={rotuloFoto}
-          ativo={midias.length > 0}
+          ativo={midias.length > 0 || opcoesAbertas}
+          expandido={opcoesAbertas}
           desabilitado={cheio}
-          onPress={abrirOpcoes}
+          onPress={alternarOpcoes}
         />
         <BotaoExtra
           icone="pen"
@@ -148,6 +231,16 @@ export function MediaPicker({
           onPress={onToggleNota}
         />
       </View>
+
+      {opcoesAbertas ? (
+        <OpcoesMidia
+          onCamera={() => void escolher('camera')}
+          onGaleria={() => void escolher('galeria')}
+        />
+      ) : null}
+
+      {erro ? <LinhaErro erro={erro} /> : null}
+
       {midias.length > 0 ? (
         <View style={styles.miniaturas}>
           {midias.map((midia, indice) => (
@@ -189,6 +282,17 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     flexShrink: 1,
     minWidth: 0,
+  },
+  opcoes: {
+    flexDirection: 'row',
+    gap: espaco.sm,
+    paddingLeft: espaco.xs,
+  },
+  erro: {
+    paddingHorizontal: espaco.xs,
+  },
+  ativar: {
+    textDecorationLine: 'underline',
   },
   miniaturas: {
     flexDirection: 'row',

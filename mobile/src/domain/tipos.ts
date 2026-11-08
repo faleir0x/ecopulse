@@ -23,6 +23,14 @@ export type Ocorrencia = {
   expira_em: string;
 };
 
+/** Em qual ocorrência o relato do próprio aparelho entrou (GET /v1/relatos/{client_id}). */
+export type SituacaoRelato = {
+  client_id: string;
+  ocorrencia_id: number | null;
+  status_ocorrencia: StatusOcorrencia | null;
+  confirmacoes: number | null;
+};
+
 export type OcorrenciaDetalhe = Ocorrencia & {
   /** Recebimento de cada relato, do mais antigo ao mais novo (últimos 30). */
   linha_do_tempo: string[];

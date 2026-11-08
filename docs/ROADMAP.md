@@ -49,10 +49,11 @@ Tipos de risco: os 4 da proposta (alagamento, calor, qualidade do ar, rota obstr
 - [x] **5.1** Serviço `environment`: Open-Meteo (AQI/temperatura) + simulador para a apresentação
 
 ## Pendências (depois da 4.6)
-- [ ] `GET /v1/relatos/{client_id}` (ocorrência e confirmações do próprio relato) e "Meus relatos" abrindo o detalhe no Mapa
-- [ ] Rate limit também por IP (além do por aparelho)
-- [ ] Ajustes finos de design listados na 4.5: miniatura 48 px no componente compartilhado, contador "N novos" em Alertas, ícone `bell-off` no vazio
+- [x] `GET /v1/relatos/{client_id}` (ocorrência e confirmações do próprio relato) e "Meus relatos" abrindo o detalhe no Mapa
+- [x] Rate limit também por IP (além do por aparelho)
+- [x] Ajustes finos de design listados na 4.5: miniatura 48 px no componente compartilhado, contador "N novos" em Alertas, ícone `bell-off` no vazio
 - [ ] Avaliar com o professor se a identificação anônima por aparelho atende (sem login)
+- [x] Diálogos nativos do relato trocados por opções dentro da sheet
 - [ ] Canal de notificação Android "Alertas de risco" (prioridade alta)
 
 ## Fase 6: Entrega

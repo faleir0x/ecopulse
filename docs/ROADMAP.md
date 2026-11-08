@@ -33,7 +33,7 @@ Cada etapa termina com **commit + push** na branch `caue`.
 
 ## Fase 3: Tempo real
 - [x] **3.1** Serviço `realtime`: WebSocket, assinatura por célula geohash, Redis pub/sub
-- [ ] **3.2** Teste de integração com várias instâncias
+- [x] **3.2** Teste de integração com várias instâncias
 
 ## Fase 4: Mobile (depende do design)
 - [ ] **4.1** Projeto Expo, TypeScript, ESLint, Jest, jobs do mobile na CI

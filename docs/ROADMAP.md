@@ -61,6 +61,7 @@ Conferência com o texto da APS (seções II–V) mostrou lacunas; a proposta pe
 - [x] `GET /v1/relatos/{client_id}` (ocorrência e confirmações do próprio relato) e "Meus relatos" abrindo o detalhe no Mapa
 - [x] Rate limit também por IP (além do por aparelho)
 - [x] Ajustes finos de design listados na 4.5: miniatura 48 px no componente compartilhado, contador "N novos" em Alertas, ícone `bell-off` no vazio
+- [ ] Mapa de calor interpolado (superfície contínua a partir das leituras, sem quadrados) com escala relativa à área visível e legenda em °C reais
 - [ ] Avaliar com o professor se a identificação anônima por aparelho atende (sem login)
 - [x] Diálogos nativos do relato trocados por opções dentro da sheet
 - [x] Canal de notificação Android "Alertas de risco" (prioridade alta, ações "Ver no mapa" e "Silenciar 1 h")

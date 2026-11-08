@@ -122,8 +122,8 @@ describe('local escolhido', () => {
     await waitFor(() => expect(result.current).toEqual(pinheiros));
   });
 
-  it('usa o GPS e ignora o escolhido quando a permissão é concedida', async () => {
-    escolherLocal(pinheiros);
+  it('usa o GPS quando não há local escolhido', async () => {
+    escolherLocal(null);
 
     const { result } = await renderHook(() => useLocalizacao());
     await waitFor(() => expect(emitirPosicao).not.toBeNull());
@@ -139,6 +139,19 @@ describe('local escolhido', () => {
       simulada: false,
     });
     if (result.current.status === 'ok') expect(result.current.escolhida).toBeFalsy();
+  });
+
+  it('o local escolhido vale mesmo com o GPS funcionando', async () => {
+    escolherLocal(pinheiros);
+
+    const { result } = await renderHook(() => useLocalizacao());
+    await waitFor(() => expect(emitirPosicao).not.toBeNull());
+
+    await act(async () => {
+      emitirPosicao!({ coords: { latitude: -23.55, longitude: -46.65, accuracy: 8 } });
+    });
+
+    expect(result.current).toMatchObject({ status: 'ok', escolhida: true, nome: 'Pinheiros' });
   });
 
   it('cai para o escolhido quando a permissão é negada', async () => {

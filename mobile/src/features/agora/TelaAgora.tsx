@@ -176,8 +176,7 @@ export function TelaAgora() {
                   medidoEm={leitura?.medido_em ?? null}
                   online={estado.online}
                   erro={ambiente.isError}
-                  // Com GPS ele manda; trocar de bairro só faz sentido quando o local é escolhido
-                  onPress={nomeEscolhido ? () => router.navigate('/local') : undefined}
+                  onPress={() => router.navigate('/local')}
                 />
               </Entrada>
 

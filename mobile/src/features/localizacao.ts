@@ -285,7 +285,7 @@ export function useLocalizacao(): EstadoLocalizacao {
     };
   }, [versaoPermissao]);
 
-  // GPS ok manda; o escolhido só cobre permissão negada ou GPS indisponível
+  // O local escolhido à mão vale até o usuário voltar para "Minha localização" (mesmo com GPS)
   // Mesmo objeto enquanto o escolhido não muda: quem depende de coords não recalcula à toa
   const estadoEscolhido = useMemo<EstadoLocalizacao | null>(
     () =>
@@ -301,9 +301,6 @@ export function useLocalizacao(): EstadoLocalizacao {
         : null,
     [escolhidoAtual],
   );
-  if (estado.status === 'ok') return estado;
-  if (estadoEscolhido && (estado.status === 'negada' || estado.status === 'indisponivel')) {
-    return estadoEscolhido;
-  }
+  if (estadoEscolhido) return estadoEscolhido;
   return estado;
 }

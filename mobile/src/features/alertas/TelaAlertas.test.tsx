@@ -15,6 +15,7 @@ jest.mock('expo-router', () => ({
 const mockNavigate = router.navigate as jest.Mock;
 
 let mockAlertas: ItemAlerta[] = [];
+const mockMarcarTodos = jest.fn();
 
 let mockPermissao = 'concedida';
 const mockAtivar = jest.fn();
@@ -28,6 +29,7 @@ jest.mock('@/state/alertas', () => ({
     naoLidos: mockAlertas.filter((alerta) => !alerta.lido).length,
     conexao: 'conectado',
     marcarLido: jest.fn(),
+    marcarTodosLidos: mockMarcarTodos,
     abrir: jest.fn(),
   }),
 }));
@@ -129,6 +131,37 @@ describe('TelaAlertas', () => {
 
     expect(queryByText('1 novo')).toBeNull();
     expect(queryByText(/novos?$/)).toBeNull();
+  });
+});
+
+describe('TelaAlertas por dia', () => {
+  function em(id: number, dias: number, lido = false): ItemAlerta {
+    const data = new Date();
+    data.setDate(data.getDate() - dias);
+    return { ...alerta(id, lido), recebidoEm: data.toISOString() };
+  }
+
+  it('"Ler todos" marca tudo e só aparece com não lidos', async () => {
+    mockAlertas = [em(1, 0)];
+    const { getByText } = await montar();
+
+    await fireEvent.press(getByText('Ler todos'));
+    expect(mockMarcarTodos).toHaveBeenCalledTimes(1);
+
+    mockAlertas = [em(1, 0, true)];
+    const lidos = await montar();
+    expect(lidos.queryByText('Ler todos')).toBeNull();
+  });
+
+  it('mostra um dia por vez e troca pelo chip', async () => {
+    mockAlertas = [em(1, 0), em(2, 1, true), em(3, 1, true)];
+    const { getByText, getAllByText } = await montar();
+
+    expect(getByText('1 novo')).toBeTruthy();
+    expect(getAllByText('Alagamento')).toHaveLength(1);
+
+    await fireEvent.press(getByText('Ontem'));
+    expect(getAllByText('Alagamento')).toHaveLength(2);
   });
 });
 

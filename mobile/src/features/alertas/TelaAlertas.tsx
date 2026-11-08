@@ -1,4 +1,5 @@
 import { router } from 'expo-router';
+import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -10,15 +11,18 @@ import { useAlertas } from '@/state/alertas';
 import { useTema } from '@/theme/tema';
 import { espaco, raio, tamanho } from '@/theme/tokens';
 
-import { agruparAlertas } from './agrupar';
+import { agruparPorDia } from './agrupar';
 import { AlertRow } from './AlertRow';
 import { usePermissaoNotificacao } from './permissao';
 
 export function TelaAlertas() {
-  const { alertas, conexao, abrir } = useAlertas();
+  const { alertas, naoLidos: naoLidosTotal, conexao, abrir, marcarTodosLidos } = useAlertas();
   const { cor } = useTema();
   const insets = useSafeAreaInsets();
-  const grupos = agruparAlertas(alertas);
+  const dias = agruparPorDia(alertas);
+  // Um dia por vez (o mais recente por padrão); os chips trocam a data
+  const [chaveDia, setChaveDia] = useState<string | null>(null);
+  const dia = dias.find((d) => d.chave === chaveDia) ?? dias[0] ?? null;
   const { permissao, ativar } = usePermissaoNotificacao();
 
   return (
@@ -30,9 +34,25 @@ export function TelaAlertas() {
       }}
     >
       <View style={styles.cabecalho}>
-        <T estilo="large" cromo numberOfLines={1}>
+        <T estilo="large" cromo numberOfLines={1} style={styles.titulo}>
           Alertas
         </T>
+        {naoLidosTotal > 0 ? (
+          <Pressable
+            onPress={marcarTodosLidos}
+            accessibilityRole="button"
+            hitSlop={8}
+            style={({ pressed }) => [
+              styles.lerTodos,
+              { backgroundColor: cor.surfaceMuted, transform: [{ scale: pressed ? 0.97 : 1 }] },
+            ]}
+          >
+            <Icon name="check-circle" tamanho={tamanho.iconSm} cor={cor.textPrimary} />
+            <T estilo="headline" cromo numberOfLines={1} style={styles.lerTodosTexto}>
+              Ler todos
+            </T>
+          </Pressable>
+        ) : null}
       </View>
 
       <View style={styles.conteudo}>
@@ -78,23 +98,59 @@ export function TelaAlertas() {
             />
           </Card>
         ) : (
-          grupos.map((grupo) => {
-            const naoLidos = grupo.itens.filter((item) => !item.lido).length;
-
-            return (
-              <View key={grupo.rotulo}>
-                <View style={styles.grupoCabecalho}>
-                  <T estilo="headline" cromo numberOfLines={2} style={styles.grupoTitulo}>
-                    {grupo.rotulo}
-                  </T>
-                  {naoLidos > 0 ? (
-                    <T estilo="caption" cor="accent" cromo numberOfLines={1}>
-                      {naoLidos === 1 ? '1 novo' : `${naoLidos} novos`}
+          <>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.chips}
+              style={styles.chipsRolagem}
+            >
+              {dias.map((d) => {
+                const ativo = d.chave === dia?.chave;
+                const temNovo = d.itens.some((item) => !item.lido);
+                return (
+                  <Pressable
+                    key={d.chave}
+                    onPress={() => setChaveDia(d.chave)}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected: ativo }}
+                    accessibilityLabel={`${d.rotulo}${temNovo ? ', com novos' : ''}`}
+                    style={[styles.chip, { backgroundColor: ativo ? cor.ink : cor.surfaceMuted }]}
+                  >
+                    <T
+                      estilo="headline"
+                      cromo
+                      numberOfLines={1}
+                      style={[styles.chipTexto, { color: ativo ? cor.onInk : cor.textPrimary }]}
+                    >
+                      {d.rotulo}
                     </T>
-                  ) : null}
-                </View>
-                <Card estilo={styles.lista}>
-                  {grupo.itens.map((item, indice) => (
+                    {temNovo ? (
+                      <View style={[styles.chipPonto, { backgroundColor: cor.accent }]} />
+                    ) : null}
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+            {dia ? (
+              <>
+                {dia.itens.some((item) => !item.lido) ? (
+                  <View style={styles.grupoCabecalho}>
+                    <T estilo="caption" cor="accent" cromo numberOfLines={1}>
+                      {(() => {
+                        const novos = dia.itens.filter((item) => !item.lido).length;
+                        return novos === 1 ? '1 novo' : `${novos} novos`;
+                      })()}
+                    </T>
+                  </View>
+                ) : null}
+                <Card
+                  estilo={[
+                    styles.lista,
+                    dia.itens.every((item) => item.lido) ? styles.listaSemNovos : null,
+                  ]}
+                >
+                  {dia.itens.map((item, indice) => (
                     <View key={item.chave}>
                       {indice > 0 ? (
                         <View style={[styles.divisor, { backgroundColor: cor.line }]} />
@@ -107,9 +163,9 @@ export function TelaAlertas() {
                     </View>
                   ))}
                 </Card>
-              </View>
-            );
-          })
+              </>
+            ) : null}
+          </>
         )}
       </View>
     </ScrollView>
@@ -122,8 +178,51 @@ const styles = StyleSheet.create({
   },
   cabecalho: {
     minHeight: 44,
-    justifyContent: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: espaco.md,
     paddingHorizontal: espaco.gutter,
+  },
+  titulo: {
+    flexShrink: 1,
+  },
+  lerTodos: {
+    height: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: espaco.md,
+    borderRadius: raio.pill,
+  },
+  lerTodosTexto: {
+    fontSize: 15,
+    lineHeight: 20,
+  },
+  chipsRolagem: {
+    marginTop: espaco.lg,
+    marginHorizontal: -espaco.gutter,
+  },
+  chips: {
+    gap: espaco.sm,
+    paddingHorizontal: espaco.gutter,
+  },
+  chip: {
+    height: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    borderRadius: raio.pill,
+  },
+  chipTexto: {
+    fontSize: 15,
+    lineHeight: 20,
+  },
+  chipPonto: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   conteudo: {
     paddingHorizontal: espaco.gutter,
@@ -167,18 +266,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: espaco.md,
-    marginTop: espaco.xl,
+    marginTop: espaco.md,
     marginBottom: espaco.sm,
     paddingHorizontal: espaco.xs,
   },
-  grupoTitulo: {
-    fontSize: 15,
-    lineHeight: 20,
-    flexShrink: 1,
-    minWidth: 0,
-  },
   lista: {
     overflow: 'hidden',
+  },
+  listaSemNovos: {
+    marginTop: espaco.md,
   },
   divisor: {
     height: StyleSheet.hairlineWidth,

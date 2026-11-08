@@ -94,6 +94,8 @@ type Contexto = {
   naoLidos: number;
   conexao: EstadoConexao;
   marcarLido: (chave: string) => void;
+  /** "Ler todos": tira o ponto azul de todos os alertas. */
+  marcarTodosLidos: () => void;
   /** Marca como lido e abre o detalhe no Mapa. */
   abrir: (item: ItemAlerta) => void;
 };
@@ -246,6 +248,15 @@ export function AlertasProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const marcarTodosLidos = useCallback(() => {
+    setAlertas((lista) => {
+      if (lista.every((a) => a.lido)) return lista;
+      const nova = lista.map((a) => (a.lido ? a : { ...a, lido: true }));
+      salvar(nova);
+      return nova;
+    });
+  }, []);
+
   const abrir = useCallback(
     (item: ItemAlerta) => {
       marcarLido(item.chave);
@@ -279,8 +290,8 @@ export function AlertasProvider({ children }: { children: ReactNode }) {
 
   const naoLidos = alertas.filter((a) => !a.lido).length;
   const valor = useMemo(
-    () => ({ alertas, naoLidos, conexao, marcarLido, abrir }),
-    [alertas, naoLidos, conexao, marcarLido, abrir],
+    () => ({ alertas, naoLidos, conexao, marcarLido, marcarTodosLidos, abrir }),
+    [alertas, naoLidos, conexao, marcarLido, marcarTodosLidos, abrir],
   );
   return <AlertasContext.Provider value={valor}>{children}</AlertasContext.Provider>;
 }

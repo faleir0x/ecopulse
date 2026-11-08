@@ -1,6 +1,6 @@
 import type { Ocorrencia } from '@/domain/tipos';
 
-import { agruparAlertas } from './agrupar';
+import { agruparPorDia } from './agrupar';
 import type { ItemAlerta } from './regras';
 
 function ocorrencia(id: number): Ocorrencia {
@@ -29,38 +29,28 @@ function item(id: number, recebidoEm: string): ItemAlerta {
   };
 }
 
-const AGORA = new Date('2026-11-08T00:10:00-03:00');
 
-describe('agruparAlertas', () => {
-  it('separa hoje, ontem e antes na virada do dia local', () => {
-    const hoje = item(1, '2026-11-08T00:05:00-03:00');
-    const ontem = item(2, '2026-11-07T23:55:00-03:00');
-    const antes = item(3, '2026-11-06T23:59:00-03:00');
+describe('agruparPorDia', () => {
+  const agora = new Date(2026, 10, 8, 10, 0);
 
-    const grupos = agruparAlertas([hoje, ontem, antes], AGORA);
+  it('separa por dia local, do mais recente ao mais antigo, com rótulos curtos', () => {
+    const dias = agruparPorDia(
+      [
+        item(1, new Date(2026, 10, 8, 9, 0).toISOString()),
+        item(2, new Date(2026, 10, 7, 23, 59).toISOString()),
+        item(3, new Date(2026, 10, 6, 8, 0).toISOString()),
+        item(4, new Date(2026, 10, 8, 0, 1).toISOString()),
+      ],
+      agora,
+    );
 
-    expect(grupos.map((grupo) => grupo.rotulo)).toEqual(['Hoje', 'Ontem', 'Antes']);
-    expect(grupos[0]?.itens).toEqual([hoje]);
-    expect(grupos[1]?.itens).toEqual([ontem]);
-    expect(grupos[2]?.itens).toEqual([antes]);
+    expect(dias.map((dia) => dia.rotulo)).toEqual(['Hoje', 'Ontem', '6 nov']);
+    expect(dias[0]!.itens.map((i) => i.ocorrencia.id)).toEqual([1, 4]);
   });
 
-  it('preserva a ordem recebida dentro do grupo e omite grupos vazios', () => {
-    const primeiro = item(1, '2026-11-08T00:05:00-03:00');
-    const segundo = item(2, '2026-11-08T00:07:00-03:00');
-    const antigo = item(3, '2026-10-01T10:00:00-03:00');
+  it('omite datas inválidas e dias sem alerta', () => {
+    const dias = agruparPorDia([item(1, 'não é data'), item(2, new Date(2026, 10, 5).toISOString())], agora);
 
-    const grupos = agruparAlertas([primeiro, antigo, segundo], AGORA);
-
-    expect(grupos.map((grupo) => grupo.rotulo)).toEqual(['Hoje', 'Antes']);
-    expect(grupos[0]?.itens).toEqual([primeiro, segundo]);
-    expect(grupos[1]?.itens).toEqual([antigo]);
-  });
-
-  it('trata data inválida como "Antes"', () => {
-    const grupos = agruparAlertas([item(1, 'não é data')], AGORA);
-
-    expect(grupos).toHaveLength(1);
-    expect(grupos[0]?.rotulo).toBe('Antes');
+    expect(dias.map((dia) => dia.rotulo)).toEqual(['5 nov']);
   });
 });

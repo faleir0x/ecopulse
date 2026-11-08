@@ -8,13 +8,15 @@ import { espaco, raio, tamanho } from '@/theme/tokens';
 
 export type CabecalhoProps = {
   endereco: string | null;
+  /** Cidade da posição (geocodificação reversa); funciona fora de São Paulo. */
+  cidade?: string | null;
   medidoEm: string | null;
   online: boolean;
   erro?: boolean;
 };
 
 /** Local, atualização e ícone de sincronização (HANDOFF §5.1). */
-export function Cabecalho({ endereco, medidoEm, online, erro = false }: CabecalhoProps) {
+export function Cabecalho({ endereco, cidade = null, medidoEm, online, erro = false }: CabecalhoProps) {
   const { cor } = useTema();
   const hora = medidoEm ? horaMinuto(medidoEm) : null;
   const semConexao = !online || erro;
@@ -24,9 +26,9 @@ export function Cabecalho({ endereco, medidoEm, online, erro = false }: Cabecalh
       ? `Sem conexão · dados das ${hora}`
       : 'Sem conexão · sem leitura'
     : hora
-      ? `São Paulo · atualizado ${hora}`
-      : 'São Paulo · sem atualização';
-  const local = endereco ?? 'São Paulo';
+      ? `${cidade ?? 'Sua região'} · atualizado ${hora}`
+      : `${cidade ?? 'Sua região'} · sem atualização`;
+  const local = endereco ?? cidade ?? 'Sua localização';
 
   return (
     <View style={styles.linha}>

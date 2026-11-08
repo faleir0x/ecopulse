@@ -7,7 +7,7 @@ import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanima
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { OfflinePill, Pill, SegmentedFilter } from '@/components';
-import { ROTULO_TIPO, TIPOS_RISCO, type TipoRisco } from '@/domain/tipos';
+import { ROTULO_TIPO, TIPOS_RISCO, type Ocorrencia, type TipoRisco } from '@/domain/tipos';
 import { useLocalizacao } from '@/features/localizacao';
 import { estiloMapa } from '@/features/mapa/estiloMapa';
 import { useConfirmar, useDetalhe, useOcorrencias } from '@/features/ocorrencias';
@@ -19,6 +19,7 @@ import { useUi } from '@/state/ui';
 import { useTema } from '@/theme/tema';
 import { espaco, sheet as tokensSheet, tamanho } from '@/theme/tokens';
 
+import { CamadaAmbiental } from './CamadaAmbiental';
 import {
   CENTRO_SAO_PAULO,
   RAIO_AREA_SELECIONADA_M,
@@ -29,9 +30,14 @@ import { comAlfa } from './cor';
 import type { EstadoResposta } from './DetailFooter';
 import { ICONE_TIPO } from './iconesTipo';
 import { IncidentMarker } from './IncidentMarker';
+import { LegendaCamada } from './LegendaCamada';
 import { MapSheet, type RefSheet } from './MapSheet';
 import { PendingMarker } from './PendingMarker';
 import { ocorrenciasNoRaio } from './ordenar';
+import { bboxDoRaio } from '@/features/agora/escalas';
+import { decodeBbox, encode } from '@/lib/geohash';
+import { SeletorCamada } from './SeletorCamada';
+import { useCamada, type Camada } from './useCamada';
 import { useEndereco } from './useEndereco';
 import { UserMarker } from './UserMarker';
 
@@ -57,6 +63,7 @@ export function TelaMapa() {
   const { estado, meus } = useRelatos();
 
   const [filtro, setFiltro] = useState<TipoRisco | null>(null);
+  const [camada, setCamada] = useState<Camada>('nenhuma');
   const [selecionadoId, setSelecionadoId] = useState<number | null>(null);
   const [bbox, setBbox] = useState<Bbox | null>(null);
   const [indiceDetent, setIndiceDetent] = useState(0);
@@ -78,15 +85,31 @@ export function TelaMapa() {
   const modoFoco = selecionadoId !== null;
 
   const ocorrencias = useOcorrencias(bbox, filtro);
+  const camadaAmbiente = useCamada(bbox, camada !== 'nenhuma');
   const detalhe = useDetalhe(selecionadoId);
   const confirmar = useConfirmar(selecionadoId ?? -1);
   const endereco = useEndereco(
     detalhe.data ? { latitude: detalhe.data.latitude, longitude: detalhe.data.longitude } : null,
   );
 
+  // A lista ("N ocorrências · em 1 km") é sobre o usuário, não sobre a câmera: busca em volta
+  // da posição, presa à célula geohash6 (andar não refaz a busca a cada segundo)
+  const celulaOrigem = encode(origem.latitude, origem.longitude, 6);
+  const bboxLista = useMemo(() => {
+    const c = decodeBbox(celulaOrigem);
+    return bboxDoRaio({ latitude: (c.latMin + c.latMax) / 2, longitude: (c.lonMin + c.lonMax) / 2 }, raioM + 800);
+  }, [celulaOrigem, raioM]);
+  const proximas = useOcorrencias(bboxLista, filtro);
+  // Marcadores = área visível + em volta do usuário (sem duplicar): o que está na lista ou foi
+  // aberto por ela aparece na hora, sem esperar a busca da câmera
+  const marcadores = useMemo(() => {
+    const porId = new Map<number, Ocorrencia>();
+    for (const o of [...(proximas.data ?? []), ...(ocorrencias.data ?? [])]) porId.set(o.id, o);
+    return [...porId.values()];
+  }, [proximas.data, ocorrencias.data]);
   const lista = useMemo(
-    () => ocorrenciasNoRaio(ocorrencias.data ?? [], origem, raioM),
-    [ocorrencias.data, origem, raioM],
+    () => ocorrenciasNoRaio(proximas.data ?? [], origem, raioM),
+    [proximas.data, origem, raioM],
   );
 
   const pendentes = useMemo(() => meus.filter((relato) => relato.status === 'pendente'), [meus]);
@@ -94,7 +117,7 @@ export function TelaMapa() {
   const selecionada =
     selecionadoId === null
       ? null
-      : (ocorrencias.data ?? []).find((o) => o.id === selecionadoId) ?? null;
+      : marcadores.find((o) => o.id === selecionadoId) ?? null;
 
   const opcoesFiltro = useMemo(
     () => [
@@ -219,7 +242,7 @@ export function TelaMapa() {
   // Ao abrir o detalhe, foca o alvo (a mapPadding deixa a área acima da sheet livre).
   useEffect(() => {
     if (selecionadoId === null || ultimoFoco.current === selecionadoId) return;
-    const alvo = (ocorrencias.data ?? []).find((o) => o.id === selecionadoId) ?? detalhe.data;
+    const alvo = marcadores.find((o) => o.id === selecionadoId) ?? detalhe.data;
     if (!alvo) return;
     ultimoFoco.current = selecionadoId;
     mapaRef.current?.animateCamera(
@@ -231,7 +254,7 @@ export function TelaMapa() {
       },
       { duration: 600 },
     );
-  }, [selecionadoId, ocorrencias.data, detalhe.data]);
+  }, [selecionadoId, marcadores, detalhe.data]);
 
   // Sincroniza o detent quando muda o modo (lista ↔ detalhe).
   useEffect(() => {
@@ -278,6 +301,8 @@ export function TelaMapa() {
         onRegionChangeComplete={(regiao) => setBbox(bboxDaRegiao(regiao))}
         onPress={fecharDetalhe}
       >
+        <CamadaAmbiental celulas={camadaAmbiente.data ?? []} camada={camada} />
+
         {temLocalizacao && localizacao.status === 'ok' ? (
           <>
             <Circle
@@ -301,7 +326,7 @@ export function TelaMapa() {
           />
         ) : null}
 
-        {(ocorrencias.data ?? []).map((ocorrencia) => (
+        {marcadores.map((ocorrencia) => (
           <IncidentMarker
             key={ocorrencia.id}
             ocorrencia={ocorrencia}
@@ -325,10 +350,10 @@ export function TelaMapa() {
         lista={lista}
         origem={origem}
         raioM={raioM}
-        carregando={ocorrencias.isPending}
-        erro={ocorrencias.isError}
+        carregando={proximas.isPending}
+        erro={proximas.isError}
         temFiltro={filtro !== null}
-        onTentar={() => void ocorrencias.refetch()}
+        onTentar={() => void proximas.refetch()}
         onLimparFiltro={() => setFiltro(null)}
         onAbrir={abrirDetalhe}
         detalhe={detalhe.data ?? null}
@@ -350,6 +375,11 @@ export function TelaMapa() {
           </View>
         ) : null}
         <SegmentedFilter opcoes={opcoesFiltro} valor={filtro} onChange={setFiltro} />
+        {camada !== 'nenhuma' ? (
+          <View style={styles.legenda}>
+            <LegendaCamada camada={camada} carregando={camadaAmbiente.isPending} />
+          </View>
+        ) : null}
         {!temLocalizacao ? (
           <View style={styles.semLocalizacao}>
             <Pill rotulo="Sem localização" />
@@ -357,16 +387,19 @@ export function TelaMapa() {
         ) : null}
       </View>
 
-      {temLocalizacao && indiceDetent !== 2 ? (
-        <Animated.View pointerEvents="box-none" style={[styles.gpsPos, estiloGps]}>
-          <Pressable
-            onPress={recentralizar}
-            accessibilityRole="button"
-            accessibilityLabel="Minha localização"
-            style={[styles.gps, { backgroundColor: cor.surface, borderColor: cor.line }]}
-          >
-            <Icon name="gps" tamanho={tamanho.icon} cor={cor.textPrimary} />
-          </Pressable>
+      {indiceDetent !== 2 ? (
+        <Animated.View pointerEvents="box-none" style={[styles.controlesPos, estiloGps]}>
+          <SeletorCamada valor={camada} onChange={setCamada} />
+          {temLocalizacao ? (
+            <Pressable
+              onPress={recentralizar}
+              accessibilityRole="button"
+              accessibilityLabel="Minha localização"
+              style={[styles.gps, { backgroundColor: cor.surface, borderColor: cor.line }]}
+            >
+              <Icon name="gps" tamanho={tamanho.icon} cor={cor.textPrimary} />
+            </Pressable>
+          ) : null}
         </Animated.View>
       ) : null}
     </View>
@@ -391,10 +424,16 @@ const styles = StyleSheet.create({
     marginTop: espaco.sm,
     alignItems: 'center',
   },
-  gpsPos: {
+  legenda: {
+    alignSelf: 'flex-start',
+    marginTop: espaco.sm,
+  },
+  controlesPos: {
     position: 'absolute',
     right: espaco.gutter,
     zIndex: 15,
+    alignItems: 'flex-end',
+    gap: espaco.sm,
   },
   gps: {
     width: 44,

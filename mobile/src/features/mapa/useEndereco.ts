@@ -24,7 +24,7 @@ type Resultado = { latitude: number; longitude: number; endereco: string | null 
 /** Endereço por geocodificação reversa; null enquanto carrega, se falhar ou sem coordenada. */
 export function useEndereco(
   coordenada: Coordenada | null,
-  formato: 'completo' | 'bairro' = 'completo',
+  formato: 'completo' | 'bairro' | 'cidade' = 'completo',
 ): string | null {
   const latitude = coordenada?.latitude ?? null;
   const longitude = coordenada?.longitude ?? null;
@@ -41,7 +41,13 @@ export function useEndereco(
         setResultado({
           latitude,
           longitude,
-          endereco: primeiro ? (formato === 'bairro' ? montarBairro(primeiro) : montarEndereco(primeiro)) : null,
+          endereco: primeiro
+            ? formato === 'bairro'
+              ? montarBairro(primeiro)
+              : formato === 'cidade'
+                ? (primeiro.city ?? primeiro.subregion ?? null)
+                : montarEndereco(primeiro)
+            : null,
         });
       } catch {
         if (ativo) setResultado({ latitude, longitude, endereco: null });

@@ -52,7 +52,7 @@ Tipos de risco: os 4 da proposta (alagamento, calor, qualidade do ar, rota obstr
 Conferência com o texto da APS (seções II–V) mostrou lacunas; a proposta pede "alta disponibilidade", "Message Broker distribuído", "camadas ambientais" no mapa, alerta ao "entrar na zona de influência" e "roteamento preventivo".
 - [x] **5.2** Alta disponibilidade como padrão: RabbitMQ com 3 nós + filas quorum + HAProxy; Redis Cluster com 3 mestres + 3 réplicas
 - [x] **5.3** Camadas ambientais no mapa (Calor e Ar por célula geohash) + `GET /v1/ambiente/camada?bbox=` com cache ("mapa de calor")
-- [ ] **5.4** Alerta ao entrar na zona de influência de uma ocorrência ativa (posição do usuário)
+- [x] **5.4** Alerta ao entrar na zona de influência de uma ocorrência ativa (posição do usuário)
 - [ ] **5.5** Roteamento preventivo: rota que desvia das ocorrências ativas (Valhalla com `exclude_polygons`, OpenStreetMap de São Paulo)
 
 ## Pendências (depois da 4.6)

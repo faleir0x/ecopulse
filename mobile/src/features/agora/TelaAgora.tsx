@@ -91,6 +91,7 @@ export function TelaAgora() {
 
   const ambiente = useAmbiente(coordsAmbiente);
   const endereco = useEndereco(coordsAmbiente, 'bairro');
+  const cidade = useEndereco(coordsAmbiente, 'cidade');
   const bbox = useMemo(() => bboxDoRaio(origem, raioM), [origem, raioM]);
   const ocorrencias = useOcorrencias(bbox, null);
 
@@ -141,6 +142,7 @@ export function TelaAgora() {
               <Entrada indice={0}>
                 <Cabecalho
                   endereco={endereco}
+                  cidade={cidade}
                   medidoEm={leitura?.medido_em ?? null}
                   online={estado.online}
                   erro={ambiente.isError}

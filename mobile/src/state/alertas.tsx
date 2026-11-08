@@ -12,8 +12,11 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { endpoints } from '@/config/endpoints';
 import { ROTULO_SEVERIDADE, ROTULO_TIPO, type Severidade } from '@/domain/tipos';
 import { acrescentar, avaliar, type ItemAlerta } from '@/features/alertas/regras';
+import { avaliarZonas, RAIO_INFLUENCIA_M } from '@/features/alertas/zona';
+import { bboxDoRaio } from '@/features/agora/escalas';
+import { useOcorrencias } from '@/features/ocorrencias';
 import { useLocalizacao } from '@/features/localizacao';
-import { celulasNoRaio } from '@/lib/geohash';
+import { celulasNoRaio, decodeBbox, encode } from '@/lib/geohash';
 import { formatarDistancia } from '@/lib/distancia';
 import { ClienteRealtime, type EstadoConexao } from '@/realtime/cliente';
 
@@ -22,6 +25,16 @@ import { useRelatos } from './relatos';
 import { useUi } from './ui';
 
 const CHAVE = 'alertas.v1';
+const CHAVE_ZONAS = 'alertas.zonas.v1';
+
+function lerZonas(): Set<number> {
+  try {
+    const bruto = Storage.getItemSync(CHAVE_ZONAS);
+    return new Set(bruto ? (JSON.parse(bruto) as number[]) : []);
+  } catch {
+    return new Set();
+  }
+}
 
 // Notificação aparece mesmo com o app aberto (banner + som)
 Notifications.setNotificationHandler({
@@ -61,13 +74,17 @@ function salvar(lista: ItemAlerta[]): void {
   }
 }
 
-async function notificar(item: ItemAlerta): Promise<void> {
+async function notificar(item: ItemAlerta, zona = false): Promise<void> {
   const o = item.ocorrencia;
   try {
     await Notifications.scheduleNotificationAsync({
       content: {
-        title: `${ROTULO_TIPO[o.tipo]} · ${ROTULO_SEVERIDADE[o.severidade]}`,
-        body: `A ${formatarDistancia(item.distanciaM)} de você`,
+        title: zona
+          ? `Você entrou numa área de risco · ${ROTULO_TIPO[o.tipo]}`
+          : `${ROTULO_TIPO[o.tipo]} · ${ROTULO_SEVERIDADE[o.severidade]}`,
+        body: zona
+          ? `${ROTULO_SEVERIDADE[o.severidade]} · a ${formatarDistancia(item.distanciaM)}`
+          : `A ${formatarDistancia(item.distanciaM)} de você`,
         data: { ocorrenciaId: o.id },
       },
       trigger: null,
@@ -134,6 +151,47 @@ export function AlertasProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     cliente.assinar(celulas ? celulas.split(',') : []);
   }, [cliente, celulas]);
+
+  // Zona de influência (proposta: avisar quando o usuário ENTRA na zona de um risco).
+  // A consulta fica presa à célula geohash6 da posição: andar não refaz a busca a cada segundo.
+  const celulaAtual = posicao ? encode(posicao.latitude, posicao.longitude, 6) : null;
+  const bboxZona = useMemo(() => {
+    if (!celulaAtual) return null;
+    const c = decodeBbox(celulaAtual);
+    const centro = { latitude: (c.latMin + c.latMax) / 2, longitude: (c.lonMin + c.lonMax) / 2 };
+    return bboxDoRaio(centro, RAIO_INFLUENCIA_M.critico + 1000);
+  }, [celulaAtual]);
+  const proximas = useOcorrencias(bboxZona, null);
+  const dentro = useRef<Set<number>>(lerZonas());
+
+  useEffect(() => {
+    if (!posicao || !proximas.data) return;
+    const { entrou, dentro: novo } = avaliarZonas(proximas.data, posicao, dentro.current, {
+      limiar,
+      tiposAtivos,
+    });
+    dentro.current = novo;
+    try {
+      Storage.setItemSync(CHAVE_ZONAS, JSON.stringify([...novo]));
+    } catch {
+      // sem persistência: no pior caso avisa de novo ao reabrir o app
+    }
+    for (const { ocorrencia, distanciaM } of entrou) {
+      const item: ItemAlerta = {
+        chave: `zona:${ocorrencia.id}:${Date.now()}`,
+        ocorrencia,
+        distanciaM,
+        recebidoEm: new Date().toISOString(),
+        lido: false,
+      };
+      setAlertas((lista) => {
+        const nova = acrescentar(lista, item);
+        salvar(nova);
+        return nova;
+      });
+      void notificar(item, true);
+    }
+  }, [posicao, proximas.data, limiar, tiposAtivos]);
 
   const marcarLido = useCallback((chave: string) => {
     setAlertas((lista) => {

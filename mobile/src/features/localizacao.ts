@@ -17,8 +17,47 @@ export function lerSimulada(valor: string | undefined): Coordenada | null {
   return { latitude: lat, longitude: lon };
 }
 
-// Para demonstração e testes: fixa a posição (ex.: Av. Paulista) sem usar o GPS do aparelho
-const SIMULADA = lerSimulada(process.env.EXPO_PUBLIC_LOCALIZACAO_SIMULADA);
+/** "lat,lon;lat,lon;..." → pontos válidos (inválidos são ignorados). */
+export function lerTrajeto(valor: string | undefined): Coordenada[] {
+  if (!valor) return [];
+  return valor
+    .split(';')
+    .map((parte) => lerSimulada(parte))
+    .filter((c): c is Coordenada => c !== null);
+}
+
+/** Posição após percorrer `metros` pelo trajeto (vai e volta, para a demo nunca parar). */
+export function posicaoNoTrajeto(pontos: Coordenada[], metros: number): Coordenada {
+  const primeiro = pontos[0];
+  if (!primeiro) throw new Error('trajeto vazio');
+  if (pontos.length === 1) return primeiro;
+  const ida = [...pontos, ...pontos.slice(0, -1).reverse()];
+  const trechos = ida.slice(1).map((p, i) => {
+    const a = ida[i]!;
+    const dLat = (p.latitude - a.latitude) * 111_320;
+    const dLon = (p.longitude - a.longitude) * 111_320 * Math.cos((a.latitude * Math.PI) / 180);
+    return { a, b: p, m: Math.hypot(dLat, dLon) };
+  });
+  const total = trechos.reduce((soma, t) => soma + t.m, 0) || 1;
+  let resto = ((metros % total) + total) % total;
+  for (const t of trechos) {
+    if (resto <= t.m) {
+      const f = t.m === 0 ? 0 : resto / t.m;
+      return {
+        latitude: t.a.latitude + (t.b.latitude - t.a.latitude) * f,
+        longitude: t.a.longitude + (t.b.longitude - t.a.longitude) * f,
+      };
+    }
+    resto -= t.m;
+  }
+  return primeiro;
+}
+
+// Demonstração e testes: posição fixa ("lat,lon", ex.: Av. Paulista) ou um trajeto
+// ("lat,lon;lat,lon;...") percorrido sozinho, sem usar o GPS do aparelho
+const TRAJETO = lerTrajeto(process.env.EXPO_PUBLIC_LOCALIZACAO_SIMULADA);
+const SIMULADA = TRAJETO[0] ?? null;
+const VELOCIDADE_SIMULADA_MS = Number(process.env.EXPO_PUBLIC_VELOCIDADE_SIMULADA) || 15;
 
 /** Posição atual em primeiro plano (permissão "enquanto usa o app"), atualizada a cada ~25 m. */
 export function useLocalizacao(): EstadoLocalizacao {
@@ -28,10 +67,16 @@ export function useLocalizacao(): EstadoLocalizacao {
 
   useEffect(() => {
     if (SIMULADA) {
-      // Posição fixa, mas a permissão ainda é pedida: o geocodificador do Android
+      // Posição simulada, mas a permissão ainda é pedida: o geocodificador do Android
       // (endereço do detalhe) exige permissão de localização
       void Location.requestForegroundPermissionsAsync();
-      return;
+      if (TRAJETO.length < 2) return;
+      const inicio = Date.now();
+      const timer = setInterval(() => {
+        const metros = ((Date.now() - inicio) / 1000) * VELOCIDADE_SIMULADA_MS;
+        setEstado({ status: 'ok', coords: posicaoNoTrajeto(TRAJETO, metros), precisaoM: 12, simulada: true });
+      }, 1000);
+      return () => clearInterval(timer);
     }
     let assinatura: Location.LocationSubscription | null = null;
     let ativo = true;

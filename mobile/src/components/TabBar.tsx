@@ -203,7 +203,7 @@ const styles = StyleSheet.create({
   linha: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
   },
   tabs: {
     flex: 1,
@@ -212,7 +212,7 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 6,
+    padding: 4,
     gap: 2,
     shadowOpacity: 0.35,
     shadowRadius: 16,
@@ -227,24 +227,28 @@ const styles = StyleSheet.create({
   },
   aba: {
     height: 52,
-    minWidth: 52,
     borderRadius: raio.pill,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 7,
-    paddingHorizontal: espaco.md,
+    gap: 6,
     zIndex: 1,
   },
+  // Ativa parte da largura do conteúdo, mas pode encolher (rótulo com reticências) em
+  // telas estreitas; inativas nunca ficam abaixo da área mínima de toque (44)
   abaAtiva: {
     flexGrow: 2.3,
     flexBasis: 'auto',
-    flexShrink: 0,
+    flexShrink: 1,
+    minWidth: 0,
+    paddingHorizontal: 12,
   },
   abaInativa: {
     flexGrow: 1,
     flexBasis: 0,
-    flexShrink: 1,
+    flexShrink: 0,
+    minWidth: tamanho.touch,
+    paddingHorizontal: 0,
   },
   icone: {
     width: tamanho.iconLg,

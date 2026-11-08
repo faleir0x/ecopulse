@@ -1,9 +1,14 @@
-import { Text, View } from 'react-native';
+import { View } from 'react-native';
 
+import { T } from '@/components';
+
+// Placeholder: a tela de verdade entra nas etapas 4.3 a 4.6
 export default function AjustesScreen() {
   return (
     <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-      <Text>Ajustes</Text>
+      <T estilo="title" cor="textSecondary">
+        Ajustes
+      </T>
     </View>
   );
 }

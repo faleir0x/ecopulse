@@ -171,6 +171,9 @@ async def test_rota_segura_evita_duas_ocorrencias_e_compara_com_a_direta(
     assert resultado.direta.distancia_m == pytest.approx(2224.0)
     assert resultado.direta.duracao_s == pytest.approx(300.0)
     assert resultado.direta.atravessa == [1, 2]
+    assert resultado.direta.coordenadas == DIRETA_LATLON
+    assert resultado.no_caminho == []
+    assert resultado.sem_desvio is False
     assert resultado.aviso is None
     assert len(chamadas) == 2
 
@@ -235,6 +238,8 @@ async def test_origem_dentro_de_zona_gera_aviso_e_fica_fora_do_avoid(
 
     assert resultado.aviso == rotas.AVISO_ORIGEM
     assert [item.id for item in resultado.evitadas] == [2]
+    assert [item.id for item in resultado.no_caminho] == [1]
+    assert resultado.sem_desvio is False
     assert resultado.direta is not None
     assert resultado.direta.atravessa == [1, 2]
 
@@ -272,6 +277,11 @@ async def test_ors_sem_rota_evitando_devolve_a_direta_com_aviso(
     assert resultado.evitadas == []
     assert resultado.direta is not None
     assert resultado.direta.atravessa == [1]
+    assert resultado.direta.coordenadas == DIRETA_LATLON
+    assert resultado.sem_desvio is True
+    assert [(item.id, item.latitude, item.longitude) for item in resultado.no_caminho] == [
+        (1, 0.0, 0.01)
+    ]
     assert resultado.aviso == rotas.AVISO_SEM_ROTA
     assert len(chamadas) == 2
 

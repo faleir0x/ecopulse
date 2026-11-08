@@ -23,6 +23,7 @@ from typing import Any, cast
 
 import asyncpg
 import httpx
+from pydantic import ValidationError
 from redis.asyncio.cluster import RedisCluster
 from redis.exceptions import RedisError
 
@@ -219,6 +220,23 @@ def _ids_atravessados(coordenadas: list[Coordenada], zonas: list[OcorrenciaPaylo
     )
 
 
+def _resumo(zona: OcorrenciaPayload) -> OcorrenciaEvitada:
+    return OcorrenciaEvitada(
+        id=zona.id,
+        tipo=zona.tipo,
+        severidade=zona.severidade,
+        latitude=zona.latitude,
+        longitude=zona.longitude,
+    )
+
+
+def _no_caminho(
+    coordenadas: list[Coordenada], zonas: list[OcorrenciaPayload]
+) -> list[OcorrenciaEvitada]:
+    ids = set(_ids_atravessados(coordenadas, zonas))
+    return [_resumo(zona) for zona in zonas if zona.id in ids]
+
+
 def chave_cache(
     modo: ModoRota,
     origem: Coordenada,
@@ -401,7 +419,13 @@ async def _ler_cache(redis: RedisCluster, chave: str) -> RotaSegura | None:
     except RedisError:
         log.warning("cache de rotas indisponível; consultando o ORS")
         return None
-    return RotaSegura.model_validate_json(valor) if valor is not None else None
+    if valor is None:
+        return None
+    try:
+        return RotaSegura.model_validate_json(valor)
+    except ValidationError:
+        # formato antigo (deploy novo com cache de até 5 min): recalcula
+        return None
 
 
 async def _gravar_cache(redis: RedisCluster, chave: str, resultado: RotaSegura) -> None:
@@ -464,6 +488,8 @@ async def _calcular(
             duracao_s=rota.duracao_s,
             coordenadas=rota.coordenadas,
             evitadas=[],
+            no_caminho=_no_caminho(rota.coordenadas, zonas),
+            sem_desvio=False,
             direta=None,
             aviso=_juntar_avisos(avisos),
         )
@@ -499,9 +525,12 @@ async def _calcular(
                 duracao_s=direta.duracao_s,
                 coordenadas=direta.coordenadas,
                 evitadas=[],
+                no_caminho=_no_caminho(direta.coordenadas, zonas),
+                sem_desvio=True,
                 direta=RotaDireta(
                     distancia_m=direta.distancia_m,
                     duracao_s=direta.duracao_s,
+                    coordenadas=direta.coordenadas,
                     atravessa=atravessa,
                 ),
                 aviso=_juntar_avisos(avisos, AVISO_SEM_ROTA),
@@ -515,13 +544,7 @@ async def _calcular(
     atravessadas_pela_segura = set(_ids_atravessados(segura.coordenadas, zonas))
     por_id = {zona.id: zona for zona in zonas}
     evitadas = [
-        OcorrenciaEvitada(
-            id=zona_id,
-            tipo=por_id[zona_id].tipo,
-            severidade=por_id[zona_id].severidade,
-        )
-        for zona_id in atravessa
-        if zona_id not in atravessadas_pela_segura
+        _resumo(por_id[zona_id]) for zona_id in atravessa if zona_id not in atravessadas_pela_segura
     ]
 
     return RotaSegura(
@@ -530,9 +553,12 @@ async def _calcular(
         duracao_s=segura.duracao_s,
         coordenadas=segura.coordenadas,
         evitadas=evitadas,
+        no_caminho=[_resumo(por_id[zona_id]) for zona_id in sorted(atravessadas_pela_segura)],
+        sem_desvio=False,
         direta=RotaDireta(
             distancia_m=direta.distancia_m,
             duracao_s=direta.duracao_s,
+            coordenadas=direta.coordenadas,
             atravessa=atravessa,
         ),
         aviso=_juntar_avisos(avisos),

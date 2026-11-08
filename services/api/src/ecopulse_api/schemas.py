@@ -51,11 +51,13 @@ ModoRota = Literal["pedestre", "carro"]
 
 
 class OcorrenciaEvitada(BaseModel):
-    """Ocorrência que a rota segura contorna e a rota direta atravessaria."""
+    """Ocorrência ligada à rota: contornada (`evitadas`) ou ainda no caminho (`no_caminho`)."""
 
     id: int
     tipo: TipoRisco
     severidade: Severidade
+    latitude: float
+    longitude: float
 
 
 class RotaDireta(BaseModel):
@@ -63,6 +65,7 @@ class RotaDireta(BaseModel):
 
     distancia_m: float
     duracao_s: float
+    coordenadas: list[tuple[float, float]]  # (lat, lon)
     atravessa: list[int]
 
 
@@ -74,6 +77,10 @@ class RotaSegura(BaseModel):
     duracao_s: float
     coordenadas: list[tuple[float, float]]  # (lat, lon)
     evitadas: list[OcorrenciaEvitada]
+    # Zonas que a rota devolvida ainda cruza (origem/destino dentro, ou sem desvio possível)
+    no_caminho: list[OcorrenciaEvitada]
+    # True quando nenhum caminho evita os riscos: a rota devolvida é a direta
+    sem_desvio: bool
     direta: RotaDireta | None
     aviso: str | None
 

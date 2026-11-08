@@ -3,8 +3,10 @@ import { endpoints } from '@/config/endpoints';
 import type {
   CelulaAmbiente,
   LeituraAmbiente,
+  ModoRota,
   Ocorrencia,
   OcorrenciaDetalhe,
+  RotaSegura,
   Severidade,
   SituacaoRelato,
   TipoRisco,
@@ -220,6 +222,24 @@ export async function lerAmbiente(lat: number, lon: number, op: Opcoes = {}): Pr
 export async function lerCamada(bbox: Bbox, op: Opcoes = {}): Promise<CelulaAmbiente[]> {
   return pedir<CelulaAmbiente[]>(
     `/v1/ambiente/camada?bbox=${bbox.lonMin},${bbox.latMin},${bbox.lonMax},${bbox.latMax}`,
+    { method: 'GET' },
+    op,
+    true,
+  );
+}
+
+type Ponto = { latitude: number; longitude: number };
+
+/** GET /v1/rotas: rota que desvia das ocorrências ativas, comparada com a direta. */
+export async function calcularRota(
+  origem: Ponto,
+  destino: Ponto,
+  modo: ModoRota,
+  op: Opcoes = {},
+): Promise<RotaSegura> {
+  const ponto = (p: Ponto) => `${p.latitude.toFixed(5)},${p.longitude.toFixed(5)}`;
+  return pedir<RotaSegura>(
+    `/v1/rotas?origem=${ponto(origem)}&destino=${ponto(destino)}&modo=${modo}`,
     { method: 'GET' },
     op,
     true,

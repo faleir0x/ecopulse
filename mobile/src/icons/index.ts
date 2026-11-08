@@ -16,6 +16,8 @@ export const ICONES = [
   'play', 'history', 'gallery-minimalistic', 'add', 'alt-arrow-down', 'alt-arrow-left',
   'alt-arrow-right', 'arrow-up', 'bell-off', 'camera-minimalistic', 'check-circle', 'close',
   'cloud-check', 'cloud-cross', 'gps', 'layers-minimalistic', 'map-point', 'pen', 'refresh',
+  // rota segura
+  'routing-2', 'flag', 'walking', 'car', 'danger-triangle',
 ] as const;
 
 export type NomeIcone = (typeof ICONES)[number];

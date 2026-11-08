@@ -1,6 +1,6 @@
 import BottomSheet, { BottomSheetFooter, BottomSheetScrollView } from '@gorhom/bottom-sheet';
 import type { BottomSheetBackgroundProps, BottomSheetFooterProps } from '@gorhom/bottom-sheet';
-import type { ComponentRef, RefObject } from 'react';
+import type { ComponentRef, ReactNode, RefObject } from 'react';
 import { useCallback } from 'react';
 import { StyleSheet, View } from 'react-native';
 import type { SharedValue } from 'react-native-reanimated';
@@ -52,6 +52,9 @@ export type MapSheetProps = {
   onConfirmar: () => void;
   onResolvido: () => void;
   onDesfazer?: () => void;
+
+  /** Modo rota: substitui lista e detalhe (snaps peek/half). */
+  rota?: { conteudo: ReactNode; rodape: ReactNode | null } | null;
 };
 
 function AlcaSheet() {
@@ -120,18 +123,33 @@ export function MapSheet(props: MapSheetProps) {
     onConfirmar,
     onResolvido,
     onDesfazer,
+    rota,
   } = props;
 
   const { cor } = useTema();
   const insets = useSafeAreaInsets();
 
-  const snaps = modoFoco
+  const snaps = rota
+    ? [tokensSheet.peek, tokensSheet.half]
+    : modoFoco
     ? [tokensSheet.peek, tokensSheet.detail, tokensSheet.full]
     : [tokensSheet.peek, tokensSheet.half, tokensSheet.full];
 
   const footer = useCallback(
     (footerProps: BottomSheetFooterProps) => {
-      if (!modoFoco || !detalhe) return null;
+      const conteudoRodape = rota
+        ? rota.rodape
+        : modoFoco && detalhe
+          ? (
+              <DetailFooter
+                estado={estadoResposta}
+                onConfirmar={onConfirmar}
+                onResolvido={onResolvido}
+                onDesfazer={onDesfazer}
+              />
+            )
+          : null;
+      if (!conteudoRodape) return null;
       // BottomSheetFooter acompanha a borda inferior visível da sheet durante o arraste
       return (
         <BottomSheetFooter {...footerProps}>
@@ -141,17 +159,12 @@ export function MapSheet(props: MapSheetProps) {
               { backgroundColor: cor.surface, paddingBottom: espaco.lg + insets.bottom },
             ]}
           >
-            <DetailFooter
-              estado={estadoResposta}
-              onConfirmar={onConfirmar}
-              onResolvido={onResolvido}
-              onDesfazer={onDesfazer}
-            />
+            {conteudoRodape}
           </View>
         </BottomSheetFooter>
       );
     },
-    [modoFoco, detalhe, estadoResposta, onConfirmar, onResolvido, onDesfazer, cor.surface, insets.bottom],
+    [rota, modoFoco, detalhe, estadoResposta, onConfirmar, onResolvido, onDesfazer, cor.surface, insets.bottom],
   );
 
   const conteudoLista = (
@@ -231,7 +244,7 @@ export function MapSheet(props: MapSheetProps) {
       backgroundComponent={FundoSheet}
       footerComponent={footer}
     >
-      {modoFoco ? conteudoDetalhe : conteudoLista}
+      {rota ? rota.conteudo : modoFoco ? conteudoDetalhe : conteudoLista}
     </BottomSheet>
   );
 }

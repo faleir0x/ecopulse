@@ -87,3 +87,36 @@ export type CelulaAmbiente = {
   aqi: number | null;
   medido_em: string;
 };
+
+/** GET /v1/rotas (services/api/src/ecopulse_api/schemas.py). Coordenadas em [lat, lon]. */
+export type ModoRota = 'pedestre' | 'carro';
+
+export type OcorrenciaRota = {
+  id: number;
+  tipo: TipoRisco;
+  severidade: Severidade;
+  latitude: number;
+  longitude: number;
+};
+
+export type RotaDireta = {
+  distancia_m: number;
+  duracao_s: number;
+  coordenadas: [number, number][];
+  atravessa: number[];
+};
+
+export type RotaSegura = {
+  modo: ModoRota;
+  distancia_m: number;
+  duracao_s: number;
+  coordenadas: [number, number][];
+  /** Riscos que a direta cruza e esta rota contorna. */
+  evitadas: OcorrenciaRota[];
+  /** Riscos que esta rota ainda cruza (origem/destino dentro de uma zona, ou sem desvio). */
+  no_caminho: OcorrenciaRota[];
+  /** Nenhum caminho evita os riscos: esta rota é a direta. */
+  sem_desvio: boolean;
+  direta: RotaDireta | null;
+  aviso: string | null;
+};

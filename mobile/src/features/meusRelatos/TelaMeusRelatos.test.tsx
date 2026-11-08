@@ -15,6 +15,11 @@ jest.mock('@/state/relatos', () => ({
   useRelatos: () => ({ meus: mockMeus, encerrar: mockEncerrar }),
 }));
 
+const mockResolver = jest.fn();
+jest.mock('@/features/ocorrencias', () => ({
+  useResolver: () => ({ mutate: mockResolver }),
+}));
+
 jest.mock('@/state/ui', () => ({
   useUi: () => ({ setRelatarAberto: mockSetRelatarAberto }),
 }));

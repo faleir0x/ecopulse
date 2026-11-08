@@ -1,6 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { buscarOcorrencia, confirmarOcorrencia, listarOcorrencias } from '@/api/cliente';
+import { buscarOcorrencia, confirmarOcorrencia, resolverOcorrencia, listarOcorrencias } from '@/api/cliente';
 import { idAparelho } from '@/data/aparelho';
 import type { Ocorrencia, OcorrenciaDetalhe, TipoRisco } from '@/domain/tipos';
 import type { Bbox } from '@/lib/geohash';
@@ -63,6 +63,26 @@ export function useConfirmar(id: number) {
     },
     onSettled: () => {
       void cliente.invalidateQueries({ queryKey: ['ocorrencias'] });
+    },
+  });
+}
+
+/**
+ * "Já passou": cada aparelho conta uma vez no servidor; com marcas suficientes a ocorrência
+ * encerra e o evento ocorrencia.expirada a tira do mapa. O id vai no mutate (não no hook).
+ */
+export function useResolver() {
+  const cliente = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) =>
+      resolverOcorrencia(id, {
+        client_id: randomUUID(),
+        device_id: idAparelho(),
+        registrado_em: new Date().toISOString(),
+      }),
+    onSettled: (_dados, _erro, id) => {
+      void cliente.invalidateQueries({ queryKey: ['ocorrencias'] });
+      void cliente.invalidateQueries({ queryKey: ['ocorrencia', id] });
     },
   });
 }

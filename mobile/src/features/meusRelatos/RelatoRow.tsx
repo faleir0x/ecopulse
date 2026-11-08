@@ -25,7 +25,8 @@ export const STATUS_RELATO: Record<StatusRelato, { rotulo: string; icone: NomeIc
 
 export type RelatoRowProps = {
   relato: RelatoLocal;
-  onEncerrar: (clientId: string) => void;
+  /** ocorrenciaId: a ocorrência ativa em que o relato entrou (marca "Já passou" no servidor). */
+  onEncerrar: (clientId: string, ocorrenciaId: number | null) => void;
   onAbrirMidia: (midias: MidiaLocal[], indice: number) => void;
   /** Abre o detalhe da ocorrência em que o relato entrou. */
   onAbrir: (ocorrenciaId: number) => void;
@@ -129,7 +130,15 @@ export function RelatoRow({ relato, onEncerrar, onAbrirMidia, onAbrir }: RelatoR
       </View>
 
       {podeEncerrar ? (
-        <Pill rotulo="Já passou" onPress={() => onEncerrar(relato.client_id)} />
+        <Pill
+          rotulo="Já passou"
+          onPress={() =>
+            onEncerrar(
+              relato.client_id,
+              situacao?.status_ocorrencia === 'ativa' ? ocorrenciaId : null,
+            )
+          }
+        />
       ) : null}
     </Pressable>
   );

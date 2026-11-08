@@ -15,7 +15,7 @@ import { OfflinePill, Pill, SegmentedFilter } from '@/components';
 import { ROTULO_TIPO, TIPOS_RISCO, type Ocorrencia, type TipoRisco } from '@/domain/tipos';
 import { simularPercurso, useLocalizacao } from '@/features/localizacao';
 import { estiloMapa } from '@/features/mapa/estiloMapa';
-import { useConfirmar, useDetalhe, useOcorrencias } from '@/features/ocorrencias';
+import { useConfirmar, useDetalhe, useOcorrencias, useResolver } from '@/features/ocorrencias';
 import { DestinoMarker } from '@/features/rota/DestinoMarker';
 import { RotaConteudo } from '@/features/rota/RotaConteudo';
 import { RotaLinhas } from '@/features/rota/RotaLinhas';
@@ -150,23 +150,45 @@ export function TelaMapa() {
     [],
   );
 
+  // Confirmar/"Já passou" esperam JANELA_DESFAZER_MS antes de ir ao servidor. Desfazer descarta;
+  // sair do detalhe (ou da tela) antes disso envia na hora em vez de perder a resposta
+  const acaoPendente = useRef<(() => void) | null>(null);
   const cancelarTimer = useCallback(() => {
     if (timerConfirmacao.current) {
       clearTimeout(timerConfirmacao.current);
       timerConfirmacao.current = null;
     }
+    acaoPendente.current = null;
   }, []);
+  const efetivarPendente = useCallback(() => {
+    const acao = acaoPendente.current;
+    cancelarTimer();
+    acao?.();
+  }, [cancelarTimer]);
+  const agendar = useCallback(
+    (acao: () => void) => {
+      efetivarPendente();
+      acaoPendente.current = acao;
+      timerConfirmacao.current = setTimeout(() => {
+        timerConfirmacao.current = null;
+        acaoPendente.current = null;
+        setDesfazerPendente(false);
+        acao();
+      }, JANELA_DESFAZER_MS);
+    },
+    [efetivarPendente],
+  );
 
   const abrirDetalhe = useCallback(
     (id: number) => {
-      cancelarTimer();
+      efetivarPendente();
       setSelecionadoId(id);
       setResposta(RESOLVIDOS.has(id) ? 'resolvido' : null);
       setDesfazerPendente(false);
       indiceAlvo.current = 1;
       setModoFoco(true);
     },
-    [cancelarTimer, setModoFoco],
+    [efetivarPendente, setModoFoco],
   );
 
   const sairRota = useCallback(() => {
@@ -194,13 +216,13 @@ export function TelaMapa() {
 
   const fecharDetalhe = useCallback(() => {
     if (selecionadoId === null) return;
-    cancelarTimer();
+    efetivarPendente();
     ultimoFoco.current = null;
     indiceAlvo.current = 1;
     setSelecionadoId(null);
     setDesfazerPendente(false);
     setModoFoco(false);
-  }, [selecionadoId, cancelarTimer, setModoFoco]);
+  }, [selecionadoId, efetivarPendente, setModoFoco]);
 
   const entrarRota = useCallback(() => {
     if (selecionadoId !== null) fecharDetalhe();
@@ -220,7 +242,7 @@ export function TelaMapa() {
       );
       return;
     }
-    cancelarTimer();
+    efetivarPendente();
     ultimoFoco.current = null;
     indiceAlvo.current = 0;
     setSelecionadoId(null);
@@ -230,7 +252,7 @@ export function TelaMapa() {
       { center: localizacao.coords, zoom: ZOOM_PADRAO, heading: 0, pitch: 0 },
       { duration: 600 },
     );
-  }, [localizacao, modoRota, faseRota, cancelarTimer, setModoFoco]);
+  }, [localizacao, modoRota, faseRota, efetivarPendente, setModoFoco]);
 
   // "Seguir rota": a sheet desce para o peek e só depois a câmera aproxima do usuário
   // (mexer na câmera durante a troca de mapPadding cancela o zoom no Android)
@@ -255,43 +277,36 @@ export function TelaMapa() {
     [],
   );
 
+  const { mutate: confirmarMutate } = confirmar;
+  const { mutate: resolverMutate } = useResolver();
+
   const aoConfirmar = useCallback(() => {
     if (selecionadoId === null) return;
-    cancelarTimer();
     setResposta('confirmado');
     setDesfazerPendente(true);
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
-    timerConfirmacao.current = setTimeout(() => {
-      timerConfirmacao.current = null;
-      setDesfazerPendente(false);
-      confirmar.mutate();
-    }, JANELA_DESFAZER_MS);
-  }, [selecionadoId, cancelarTimer, confirmar]);
+    agendar(() => confirmarMutate());
+  }, [selecionadoId, agendar, confirmarMutate]);
 
   const aoResolvido = useCallback(() => {
     if (selecionadoId === null) return;
-    cancelarTimer();
-    RESOLVIDOS.add(selecionadoId);
+    const id = selecionadoId;
+    RESOLVIDOS.add(id);
     setResposta('resolvido');
-    setDesfazerPendente(false);
+    setDesfazerPendente(true);
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
-  }, [selecionadoId, cancelarTimer]);
+    agendar(() => resolverMutate(id));
+  }, [selecionadoId, agendar, resolverMutate]);
 
   const aoDesfazer = useCallback(() => {
-    if (selecionadoId === null) return;
-    if (resposta === 'resolvido') {
-      RESOLVIDOS.delete(selecionadoId);
-      setResposta(null);
-      return;
-    }
-    if (resposta === 'confirmado' && desfazerPendente) {
-      cancelarTimer();
-      setDesfazerPendente(false);
-      setResposta(null);
-    }
+    if (selecionadoId === null || !desfazerPendente) return;
+    if (resposta === 'resolvido') RESOLVIDOS.delete(selecionadoId);
+    cancelarTimer();
+    setDesfazerPendente(false);
+    setResposta(null);
   }, [selecionadoId, resposta, desfazerPendente, cancelarTimer]);
 
-  const podeDesfazer = resposta === 'resolvido' || (resposta === 'confirmado' && desfazerPendente);
+  const podeDesfazer = resposta !== null && desfazerPendente;
 
   const aoPressionarMapa = useCallback(
     (evento: MapPressEvent) => {
@@ -399,8 +414,8 @@ export function TelaMapa() {
     return () => clearTimeout(temporizador);
   }, [modoFoco, modoRota, rota.fase]);
 
-  // Cancela o envio pendente ao sair da tela.
-  useEffect(() => cancelarTimer, [cancelarTimer]);
+  // Saiu da tela com resposta pendente: envia na hora.
+  useEffect(() => efetivarPendente, [efetivarPendente]);
 
   const estiloGps = useAnimatedStyle(() => ({
     bottom: alturaTela.value - posicaoSheet.value + espaco.lg,

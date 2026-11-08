@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, Card, T } from '@/components';
 import type { MidiaLocal } from '@/data/outbox';
+import { useResolver } from '@/features/ocorrencias';
 import { MediaViewer } from '@/features/relatar/MediaViewer';
 import { Icon } from '@/icons/Icon';
 import { useRelatos } from '@/state/relatos';
@@ -18,6 +19,11 @@ type Visualizador = { midias: MidiaLocal[]; indice: number };
 
 export function TelaMeusRelatos() {
   const { meus, encerrar } = useRelatos();
+  const { mutate: resolver } = useResolver();
+  const aoEncerrar = (clientId: string, ocorrenciaId: number | null) => {
+    encerrar(clientId);
+    if (ocorrenciaId !== null) resolver(ocorrenciaId);
+  };
   const { setRelatarAberto, setOcorrenciaFoco } = useUi();
   const { cor } = useTema();
   const insets = useSafeAreaInsets();
@@ -68,7 +74,7 @@ export function TelaMeusRelatos() {
                 {indice > 0 ? <View style={[styles.divisor, { backgroundColor: cor.line }]} /> : null}
                 <RelatoRow
                   relato={relato}
-                  onEncerrar={encerrar}
+                  onEncerrar={aoEncerrar}
                   onAbrirMidia={(midias, posicao) => setVisualizador({ midias, indice: posicao })}
                   onAbrir={abrirNoMapa}
                 />

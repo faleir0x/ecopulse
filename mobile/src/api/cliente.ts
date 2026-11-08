@@ -183,6 +183,25 @@ export async function confirmarOcorrencia(id: number, corpo: ConfirmacaoEnvio, o
   );
 }
 
+/** POST /v1/ocorrencias/{id}/resolucoes ("Já passou") → 202. 409 = já encerrada: nada a fazer. */
+export async function resolverOcorrencia(id: number, corpo: ConfirmacaoEnvio, op: Opcoes = {}): Promise<void> {
+  try {
+    await pedir<void>(
+      `/v1/ocorrencias/${id}/resolucoes`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(corpo),
+      },
+      op,
+      false,
+    );
+  } catch (erro) {
+    if (erro instanceof ApiErro && erro.status === 409) return;
+    throw erro;
+  }
+}
+
 /** GET /v1/relatos/{client_id}. null = 404 "processando" (o processor ainda não gravou). */
 export async function buscarSituacaoRelato(
   clientId: string,

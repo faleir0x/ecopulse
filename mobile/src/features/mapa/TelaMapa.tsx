@@ -455,6 +455,8 @@ export function TelaMapa() {
         {temLocalizacao && localizacao.status === 'ok' ? (
           <>
             <Circle
+              // O Circle do Android não redesenha quando só o centro muda: recria a cada posição
+              key={`${localizacao.coords.latitude},${localizacao.coords.longitude}`}
               center={localizacao.coords}
               radius={raioM}
               strokeColor={comAlfa(cor.accent, 0.45)}

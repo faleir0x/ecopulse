@@ -1,7 +1,7 @@
 import BottomSheet, { BottomSheetFooter, BottomSheetScrollView } from '@gorhom/bottom-sheet';
 import type { BottomSheetBackgroundProps, BottomSheetFooterProps } from '@gorhom/bottom-sheet';
 import type { ComponentRef, ReactNode, RefObject } from 'react';
-import { useCallback } from 'react';
+import { createContext, useCallback, useContext } from 'react';
 import { StyleSheet, View } from 'react-native';
 import type { SharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -20,6 +20,12 @@ import { IncidentRow } from './IncidentRow';
 import { tempoRelativo } from './tempo';
 
 export type RefSheet = ComponentRef<typeof BottomSheet>;
+
+/**
+ * Conteúdo do rodapé via contexto: o footerComponent precisa ter identidade estável, senão a
+ * BottomSheet o remonta a cada render (e um toque no meio de uma remontagem se perde).
+ */
+const RodapeContexto = createContext<ReactNode>(null);
 
 export type MapSheetProps = {
   sheetRef: RefObject<RefSheet | null>;
@@ -82,6 +88,26 @@ function FundoSheet({ style }: BottomSheetBackgroundProps) {
   );
 }
 
+function ConteudoRodape() {
+  const conteudo = useContext(RodapeContexto);
+  const { cor } = useTema();
+  const insets = useSafeAreaInsets();
+  if (!conteudo) return null;
+  return (
+    <View
+      style={[
+        styles.footer,
+        {
+          backgroundColor: cor.surface,
+          paddingBottom: espaco.lg + insets.bottom,
+        },
+      ]}
+    >
+      {conteudo}
+    </View>
+  );
+}
+
 function SkeletonLista() {
   return (
     <View style={styles.skeletonLista}>
@@ -132,39 +158,28 @@ export function MapSheet(props: MapSheetProps) {
   const snaps = rota
     ? [tokensSheet.peek, tokensSheet.half]
     : modoFoco
-    ? [tokensSheet.peek, tokensSheet.detail, tokensSheet.full]
-    : [tokensSheet.peek, tokensSheet.half, tokensSheet.full];
+      ? [tokensSheet.peek, tokensSheet.detail, tokensSheet.full]
+      : [tokensSheet.peek, tokensSheet.half, tokensSheet.full];
+
+  const conteudoRodape = rota ? (
+    rota.rodape
+  ) : modoFoco && detalhe ? (
+    <DetailFooter
+      estado={estadoResposta}
+      onConfirmar={onConfirmar}
+      onResolvido={onResolvido}
+      onDesfazer={onDesfazer}
+    />
+  ) : null;
 
   const footer = useCallback(
-    (footerProps: BottomSheetFooterProps) => {
-      const conteudoRodape = rota
-        ? rota.rodape
-        : modoFoco && detalhe
-          ? (
-              <DetailFooter
-                estado={estadoResposta}
-                onConfirmar={onConfirmar}
-                onResolvido={onResolvido}
-                onDesfazer={onDesfazer}
-              />
-            )
-          : null;
-      if (!conteudoRodape) return null;
+    (footerProps: BottomSheetFooterProps) => (
       // BottomSheetFooter acompanha a borda inferior visível da sheet durante o arraste
-      return (
-        <BottomSheetFooter {...footerProps}>
-          <View
-            style={[
-              styles.footer,
-              { backgroundColor: cor.surface, paddingBottom: espaco.lg + insets.bottom },
-            ]}
-          >
-            {conteudoRodape}
-          </View>
-        </BottomSheetFooter>
-      );
-    },
-    [rota, modoFoco, detalhe, estadoResposta, onConfirmar, onResolvido, onDesfazer, cor.surface, insets.bottom],
+      <BottomSheetFooter {...footerProps}>
+        <ConteudoRodape />
+      </BottomSheetFooter>
+    ),
+    [],
   );
 
   const conteudoLista = (
@@ -182,7 +197,9 @@ export function MapSheet(props: MapSheetProps) {
         </T>
       </View>
       <BottomSheetScrollView
-        contentContainerStyle={{ paddingBottom: ALTURA_TAB_BAR + insets.bottom + espaco.lg }}
+        contentContainerStyle={{
+          paddingBottom: ALTURA_TAB_BAR + insets.bottom + espaco.lg,
+        }}
       >
         {carregando ? (
           <SkeletonLista />
@@ -199,7 +216,9 @@ export function MapSheet(props: MapSheetProps) {
           <View>
             {lista.map((ocorrencia, indice) => (
               <View key={ocorrencia.id}>
-                {indice > 0 ? <View style={[styles.divisor, { backgroundColor: cor.line }]} /> : null}
+                {indice > 0 ? (
+                  <View style={[styles.divisor, { backgroundColor: cor.line }]} />
+                ) : null}
                 <IncidentRow
                   ocorrencia={ocorrencia}
                   distanciaM={distanciaM(
@@ -232,20 +251,22 @@ export function MapSheet(props: MapSheetProps) {
   );
 
   return (
-    <BottomSheet
-      ref={sheetRef}
-      index={0}
-      snapPoints={snaps}
-      animatedPosition={posicao}
-      onChange={(indice) => onChange(indice)}
-      topInset={insets.top}
-      enableDynamicSizing={false}
-      handleComponent={AlcaSheet}
-      backgroundComponent={FundoSheet}
-      footerComponent={footer}
-    >
-      {rota ? rota.conteudo : modoFoco ? conteudoDetalhe : conteudoLista}
-    </BottomSheet>
+    <RodapeContexto.Provider value={conteudoRodape}>
+      <BottomSheet
+        ref={sheetRef}
+        index={0}
+        snapPoints={snaps}
+        animatedPosition={posicao}
+        onChange={(indice) => onChange(indice)}
+        topInset={insets.top}
+        enableDynamicSizing={false}
+        handleComponent={AlcaSheet}
+        backgroundComponent={FundoSheet}
+        footerComponent={footer}
+      >
+        {rota ? rota.conteudo : modoFoco ? conteudoDetalhe : conteudoLista}
+      </BottomSheet>
+    </RodapeContexto.Provider>
   );
 }
 
@@ -293,4 +314,5 @@ const styles = StyleSheet.create({
     paddingHorizontal: espaco.gutter,
     paddingTop: espaco.md,
     paddingBottom: espaco.lg,
-  },});
+  },
+});

@@ -1,8 +1,13 @@
 import * as Haptics from 'expo-haptics';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
-import MapView, { Circle, PROVIDER_GOOGLE, type Region } from 'react-native-maps';
+import { BackHandler, PixelRatio, Platform, Pressable, StyleSheet, View } from 'react-native';
+import MapView, {
+  Circle,
+  PROVIDER_GOOGLE,
+  type MapPressEvent,
+  type Region,
+} from 'react-native-maps';
 import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -11,6 +16,11 @@ import { ROTULO_TIPO, TIPOS_RISCO, type Ocorrencia, type TipoRisco } from '@/dom
 import { useLocalizacao } from '@/features/localizacao';
 import { estiloMapa } from '@/features/mapa/estiloMapa';
 import { useConfirmar, useDetalhe, useOcorrencias } from '@/features/ocorrencias';
+import { DestinoMarker } from '@/features/rota/DestinoMarker';
+import { RotaConteudo } from '@/features/rota/RotaConteudo';
+import { RotaLinhas } from '@/features/rota/RotaLinhas';
+import { RotaRodape } from '@/features/rota/RotaRodape';
+import { useRotaSegura } from '@/features/rota/useRotaSegura';
 import { Icon } from '@/icons/Icon';
 import type { Bbox } from '@/lib/geohash';
 import { useRelatos } from '@/state/relatos';
@@ -43,6 +53,9 @@ import { UserMarker } from './UserMarker';
 
 const JANELA_DESFAZER_MS = 4000;
 
+/** Zoom ao seguir a rota: perto o bastante para ver a próxima esquina. */
+const ZOOM_SEGUINDO = 16.5;
+
 /** Ids marcados como "Já passou" nesta sessão (ainda não há endpoint). */
 const RESOLVIDOS = new Set<number>();
 
@@ -69,6 +82,7 @@ export function TelaMapa() {
   const [indiceDetent, setIndiceDetent] = useState(0);
   const [resposta, setResposta] = useState<EstadoResposta>(null);
   const [desfazerPendente, setDesfazerPendente] = useState(false);
+  const [modoRota, setModoRota] = useState(false);
 
   const mapaRef = useRef<MapView>(null);
   const sheetRef = useRef<RefSheet>(null);
@@ -83,6 +97,9 @@ export function TelaMapa() {
   const temLocalizacao = localizacao.status === 'ok';
   const origem = temLocalizacao ? localizacao.coords : CENTRO_SAO_PAULO;
   const modoFoco = selecionadoId !== null;
+  const rota = useRotaSegura(temLocalizacao ? localizacao.coords : null);
+  const { fase: faseRota, limpar: limparRota, setDestino: setDestinoRota, voltar: voltarRota } = rota;
+  const faseAnterior = useRef(rota.fase);
 
   const ocorrencias = useOcorrencias(bbox, filtro);
   const camadaAmbiente = useCamada(bbox, camada !== 'nenhuma');
@@ -150,10 +167,15 @@ export function TelaMapa() {
     [cancelarTimer, setModoFoco],
   );
 
+  const sairRota = useCallback(() => {
+    limparRota();
+    indiceAlvo.current = 0;
+    setModoRota(false);
+    setModoFoco(false);
+  }, [limparRota, setModoFoco]);
+
   // Saiu do Mapa (outra aba, onboarding): o modo foco não pode continuar escondendo a tab bar
-  useFocusEffect(
-    useCallback(() => () => setModoFoco(false), [setModoFoco]),
-  );
+  useFocusEffect(useCallback(() => () => sairRota(), [sairRota]));
 
   // Toque num alerta ou notificação: abre o detalhe da ocorrência pedida
   // (no próximo tick: a aba acabou de montar e o mapa precisa existir antes da câmera mover)
@@ -176,8 +198,23 @@ export function TelaMapa() {
     setModoFoco(false);
   }, [selecionadoId, cancelarTimer, setModoFoco]);
 
+  const entrarRota = useCallback(() => {
+    if (selecionadoId !== null) fecharDetalhe();
+    setModoRota(true);
+    setModoFoco(true);
+    indiceAlvo.current = 1;
+  }, [selecionadoId, fecharDetalhe, setModoFoco]);
+
   const recentralizar = useCallback(() => {
     if (localizacao.status !== 'ok') return;
+    if (modoRota) {
+      // No modo rota só move a câmera: a sheet e a tab bar seguem o estado da rota
+      mapaRef.current?.animateCamera(
+        { center: localizacao.coords, zoom: ZOOM_SEGUINDO, heading: 0, pitch: 0 },
+        { duration: 600 },
+      );
+      return;
+    }
     cancelarTimer();
     ultimoFoco.current = null;
     indiceAlvo.current = 0;
@@ -188,7 +225,26 @@ export function TelaMapa() {
       { center: localizacao.coords, zoom: ZOOM_PADRAO, heading: 0, pitch: 0 },
       { duration: 600 },
     );
-  }, [localizacao, cancelarTimer, setModoFoco]);
+  }, [localizacao, modoRota, cancelarTimer, setModoFoco]);
+
+  // "Seguir rota": a sheet desce para o peek e só depois a câmera aproxima do usuário
+  // (mexer na câmera durante a troca de mapPadding cancela o zoom no Android)
+  const { seguir: seguirRotaEstado } = rota;
+  const timerSeguir = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const seguirRota = useCallback(() => {
+    seguirRotaEstado();
+    if (timerSeguir.current) clearTimeout(timerSeguir.current);
+    timerSeguir.current = setTimeout(() => {
+      timerSeguir.current = null;
+      recentralizar();
+    }, 450);
+  }, [seguirRotaEstado, recentralizar]);
+  useEffect(
+    () => () => {
+      if (timerSeguir.current) clearTimeout(timerSeguir.current);
+    },
+    [],
+  );
 
   const aoConfirmar = useCallback(() => {
     if (selecionadoId === null) return;
@@ -228,6 +284,31 @@ export function TelaMapa() {
 
   const podeDesfazer = resposta === 'resolvido' || (resposta === 'confirmado' && desfazerPendente);
 
+  const aoPressionarMapa = useCallback(
+    (evento: MapPressEvent) => {
+      if (modoRota) {
+        if (faseRota !== 'seguindo') {
+          setDestinoRota(evento.nativeEvent.coordinate);
+          void Haptics.selectionAsync().catch(() => undefined);
+        }
+        return;
+      }
+      fecharDetalhe();
+    },
+    [modoRota, faseRota, setDestinoRota, fecharDetalhe],
+  );
+
+  // Voltar do Android: no modo rota sai ou volta para a escolha do destino.
+  useEffect(() => {
+    if (!modoRota) return;
+    const inscricao = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (faseRota === 'destino') sairRota();
+      else voltarRota();
+      return true;
+    });
+    return () => inscricao.remove();
+  }, [modoRota, faseRota, voltarRota, sairRota]);
+
   // Centraliza na localização assim que ela fica disponível (uma vez).
   useEffect(() => {
     if (temLocalizacao && localizacao.status === 'ok' && !jaCentralizou.current) {
@@ -256,13 +337,47 @@ export function TelaMapa() {
     );
   }, [selecionadoId, marcadores, detalhe.data]);
 
-  // Sincroniza o detent quando muda o modo (lista ↔ detalhe).
+  // Câmera da rota: enquadra origem/destino/linhas no resultado e centraliza ao seguir.
+  useEffect(() => {
+    if (faseAnterior.current === rota.fase) return;
+    faseAnterior.current = rota.fase;
+    if (!modoRota) return;
+
+    if (rota.fase === 'resultado' && rota.rota) {
+      const pontos = [
+        ...(temLocalizacao ? [localizacao.coords] : []),
+        ...(rota.destino ? [rota.destino] : []),
+        ...rota.rota.coordenadas.map(([latitude, longitude]) => ({ latitude, longitude })),
+      ];
+      if (!rota.rota.sem_desvio && rota.rota.direta) {
+        pontos.push(
+          ...rota.rota.direta.coordenadas.map(([latitude, longitude]) => ({ latitude, longitude })),
+        );
+      }
+      if (pontos.length >= 2) {
+        // A mapPadding já desconta a sheet; no Android o edgePadding é em pixels físicos
+        const escala = Platform.OS === 'android' ? PixelRatio.get() : 1;
+        mapaRef.current?.fitToCoordinates(pontos, {
+          edgePadding: {
+            top: (insets.top + 72) * escala,
+            right: 48 * escala,
+            bottom: 48 * escala,
+            left: 48 * escala,
+          },
+          animated: true,
+        });
+      }
+    }
+  }, [rota.fase, rota.rota, rota.destino, modoRota, temLocalizacao, localizacao, insets.top]);
+
+  // Sincroniza o detent quando muda o modo (lista ↔ detalhe ↔ rota).
   useEffect(() => {
     const temporizador = setTimeout(() => {
-      sheetRef.current?.snapToIndex(indiceAlvo.current);
+      const indice = modoRota ? (rota.fase === 'seguindo' ? 0 : 1) : indiceAlvo.current;
+      sheetRef.current?.snapToIndex(indice);
     }, 50);
     return () => clearTimeout(temporizador);
-  }, [modoFoco]);
+  }, [modoFoco, modoRota, rota.fase]);
 
   // Cancela o envio pendente ao sair da tela.
   useEffect(() => cancelarTimer, [cancelarTimer]);
@@ -297,9 +412,20 @@ export function TelaMapa() {
         zoomControlEnabled={false}
         showsBuildings={false}
         showsPointsOfInterests={false}
-        mapPadding={modoFoco ? { top: 0, right: 0, bottom: tokensSheet.detail, left: 0 } : undefined}
+        mapPadding={
+          modoRota
+            ? {
+                top: 0,
+                right: 0,
+                bottom: rota.fase === 'seguindo' ? tokensSheet.peek : tokensSheet.half,
+                left: 0,
+              }
+            : modoFoco
+              ? { top: 0, right: 0, bottom: tokensSheet.detail, left: 0 }
+              : undefined
+        }
         onRegionChangeComplete={(regiao) => setBbox(bboxDaRegiao(regiao))}
-        onPress={fecharDetalhe}
+        onPress={aoPressionarMapa}
       >
         <CamadaAmbiental celulas={camadaAmbiente.data ?? []} camada={camada} />
 
@@ -314,6 +440,14 @@ export function TelaMapa() {
             />
             <UserMarker coordenada={localizacao.coords} />
           </>
+        ) : null}
+
+        {rota.destino ? <DestinoMarker coordenada={rota.destino} /> : null}
+        {rota.rota ? (
+          <RotaLinhas
+            rota={rota.rota}
+            mostrarDireta={rota.fase === 'resultado' && !rota.rota.sem_desvio}
+          />
         ) : null}
 
         {selecionada ? (
@@ -333,7 +467,9 @@ export function TelaMapa() {
             selecionado={ocorrencia.id === selecionadoId}
             atenuado={selecionadoId !== null && ocorrencia.id !== selecionadoId}
             origem={origem}
-            onPress={() => abrirDetalhe(ocorrencia.id)}
+            onPress={() => {
+              if (!modoRota) abrirDetalhe(ocorrencia.id);
+            }}
           />
         ))}
 
@@ -366,6 +502,14 @@ export function TelaMapa() {
         onConfirmar={aoConfirmar}
         onResolvido={aoResolvido}
         onDesfazer={podeDesfazer ? aoDesfazer : undefined}
+        rota={
+          modoRota
+            ? {
+                conteudo: <RotaConteudo estado={rota} origem={origem} onSair={sairRota} />,
+                rodape: <RotaRodape estado={{ ...rota, seguir: seguirRota }} onSair={sairRota} />,
+              }
+            : null
+        }
       />
 
       <View pointerEvents="box-none" style={[styles.topo, { top: insets.top + espaco.sm }]}>
@@ -374,8 +518,10 @@ export function TelaMapa() {
             <OfflinePill pendentes={estado.pendentes} online={estado.online} />
           </View>
         ) : null}
-        <SegmentedFilter opcoes={opcoesFiltro} valor={filtro} onChange={setFiltro} />
-        {camada !== 'nenhuma' ? (
+        {!modoRota ? (
+          <SegmentedFilter opcoes={opcoesFiltro} valor={filtro} onChange={setFiltro} />
+        ) : null}
+        {camada !== 'nenhuma' && !modoRota ? (
           <View style={styles.legenda}>
             <LegendaCamada camada={camada} carregando={camadaAmbiente.isPending} />
           </View>
@@ -389,6 +535,16 @@ export function TelaMapa() {
 
       {indiceDetent !== 2 ? (
         <Animated.View pointerEvents="box-none" style={[styles.controlesPos, estiloGps]}>
+          {temLocalizacao && !modoRota && selecionadoId === null ? (
+            <Pressable
+              onPress={entrarRota}
+              accessibilityRole="button"
+              accessibilityLabel="Rota segura"
+              style={[styles.gps, { backgroundColor: cor.surface, borderColor: cor.line }]}
+            >
+              <Icon name="routing-2" tamanho={tamanho.icon} cor={cor.textPrimary} />
+            </Pressable>
+          ) : null}
           <SeletorCamada valor={camada} onChange={setCamada} />
           {temLocalizacao ? (
             <Pressable

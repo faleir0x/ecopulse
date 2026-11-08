@@ -53,9 +53,9 @@ Conferência com o texto da APS (seções II–V) mostrou lacunas; a proposta pe
 - [x] **5.2** Alta disponibilidade como padrão: RabbitMQ com 3 nós + filas quorum + HAProxy; Redis Cluster com 3 mestres + 3 réplicas
 - [x] **5.3** Camadas ambientais no mapa (Calor e Ar por célula geohash) + `GET /v1/ambiente/camada?bbox=` com cache ("mapa de calor")
 - [x] **5.4** Alerta ao entrar na zona de influência de uma ocorrência ativa (posição do usuário)
-- [ ] **5.5** Roteamento preventivo: rota que desvia das ocorrências ativas (OpenRouteService com `avoid_polygons`, cobertura mundial; chave só no servidor)
+- [x] **5.5** Roteamento preventivo: rota que desvia das ocorrências ativas (OpenRouteService com `avoid_polygons`, cobertura mundial; chave só no servidor)
   - [x] **5.5a** `GET /v1/rotas`: rota segura × direta, cache no Redis, limite por IP ([ADR 0008](adr/0008-roteamento-ors.md))
-  - [ ] **5.5b** Tela de rota no app (prancha: destino, resultado, sem alternativa)
+  - [x] **5.5b** Tela de rota no app: destino tocando no mapa, A pé/Carro, rota segura × direta, seguir (prancha: destino, resultado, sem alternativa)
 
 ## Pendências (depois da 4.6)
 - [x] `GET /v1/relatos/{client_id}` (ocorrência e confirmações do próprio relato) e "Meus relatos" abrindo o detalhe no Mapa

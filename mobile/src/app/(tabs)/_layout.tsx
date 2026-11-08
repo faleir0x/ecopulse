@@ -1,9 +1,15 @@
 import { Tabs } from 'expo-router';
 
-// Etapa 4.1: abas padrão. A tab bar flutuante do design entra na 4.2.
+import { TabBar } from '@/components';
+import { useTema } from '@/theme/tema';
+
 export default function TabsLayout() {
+  const { cor } = useTema();
   return (
-    <Tabs screenOptions={{ headerShown: false }}>
+    <Tabs
+      screenOptions={{ headerShown: false, sceneStyle: { backgroundColor: cor.background } }}
+      tabBar={(props) => <TabBar {...props} />}
+    >
       <Tabs.Screen name="index" options={{ title: 'Agora' }} />
       <Tabs.Screen name="mapa" options={{ title: 'Mapa' }} />
       <Tabs.Screen name="alertas" options={{ title: 'Alertas' }} />

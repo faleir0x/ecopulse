@@ -39,7 +39,7 @@ Cada etapa termina com **commit + push** na branch `caue`.
 
 Tipos de risco: os 4 da proposta (alagamento, calor, qualidade do ar, rota obstruída). Mídia do relato só local (sem upload).
 - [x] **4.1** Projeto Expo, TypeScript, ESLint, Jest, jobs do mobile na CI
-- [ ] **4.2** Tema (tokens light/dark) e componentes base
+- [x] **4.2** Tema (tokens light/dark) e componentes base
 - [ ] **4.3** Mapa e camadas
 - [ ] **4.4** Novo relato + outbox SQLite + sincronização
 - [ ] **4.5** Alertas (WebSocket + notificação local), onboarding e ajustes

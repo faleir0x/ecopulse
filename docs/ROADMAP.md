@@ -63,10 +63,10 @@ Conferência com o texto da APS (seções II–V) mostrou lacunas; a proposta pe
 - [x] Ajustes finos de design listados na 4.5: miniatura 48 px no componente compartilhado, contador "N novos" em Alertas, ícone `bell-off` no vazio
 - [ ] Avaliar com o professor se a identificação anônima por aparelho atende (sem login)
 - [x] Diálogos nativos do relato trocados por opções dentro da sheet
-- [ ] Canal de notificação Android "Alertas de risco" (prioridade alta)
-- [ ] "Já passou" no servidor (marcações encerram a ocorrência mais cedo) e puxar para atualizar
-- [ ] Prancha de design dos estados não desenhados (§13 do handoff) e implementação
-- [ ] Cloudflare Tunnel (api/rt.faleir0x.com) com IP real via CF-Connecting-IP só vindo do túnel
+- [x] Canal de notificação Android "Alertas de risco" (prioridade alta, ações "Ver no mapa" e "Silenciar 1 h")
+- [x] "Já passou" no servidor (uma marca por aparelho; encerra com min(3, confirmações)) e puxar para atualizar
+- [ ] Prancha de design dos estados não desenhados (§13 do handoff) e implementação — prancha aprovada; falta: sem localização + busca, ajustar ponto, falha de envio, notificações desligadas, ocorrência encerrada, agrupamento
+- [x] Cloudflare Tunnel (api/rt.faleir0x.com, perfil `tunel`) com IP real via CF-Connecting-IP só vindo do túnel
 
 ## Fase 6: Entrega
 - [ ] **6.1** CD: publicação das imagens no GHCR (packages)

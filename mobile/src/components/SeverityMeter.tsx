@@ -16,6 +16,8 @@ export type SeverityMeterProps = {
   severidade: Severidade | null;
   tamanho?: 's' | 'm' | 'l';
   animar?: boolean;
+  /** Ocorrência encerrada: as barras acesas ficam neutras. */
+  apagado?: boolean;
 };
 
 const ALTURAS = tokenMedidor.alturas;
@@ -79,7 +81,12 @@ function Barra({ indice, altura, largura, cor, animar, reduzir }: BarraProps) {
   );
 }
 
-export function SeverityMeter({ severidade, tamanho = 's', animar = true }: SeverityMeterProps) {
+export function SeverityMeter({
+  severidade,
+  tamanho = 's',
+  animar = true,
+  apagado = false,
+}: SeverityMeterProps) {
   const { cor, sev, reduzirMovimento } = useTema();
   const dimensao = tokenMedidor.tamanhos[tamanho];
   const acesas = severidade ? nivel(severidade) : 0;
@@ -104,7 +111,13 @@ export function SeverityMeter({ severidade, tamanho = 's', animar = true }: Seve
           indice={indice}
           altura={dimensao.h * altura}
           largura={dimensao.w}
-          cor={indice < acesas && severidade ? sev.meter[severidade] : cor.surfaceStrong}
+          cor={
+            indice < acesas && severidade
+              ? apagado
+                ? cor.textTertiary
+                : sev.meter[severidade]
+              : cor.surfaceStrong
+          }
           animar={animar}
           reduzir={reduzirMovimento}
         />

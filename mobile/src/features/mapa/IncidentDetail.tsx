@@ -6,7 +6,8 @@ import { SeverityLabel } from '@/components/SeverityLabel';
 import { SeverityMeter } from '@/components/SeverityMeter';
 import { Skeleton } from '@/components/Skeleton';
 import { T } from '@/components/T';
-import { ROTULO_TIPO, type OcorrenciaDetalhe } from '@/domain/tipos';
+import { ROTULO_SEVERIDADE, ROTULO_TIPO, type OcorrenciaDetalhe } from '@/domain/tipos';
+import { formatarDuracao } from '@/features/rota/formato';
 import type { Coordenada } from '@/features/localizacao';
 import { distanciaM, formatarDistancia, rumoGraus } from '@/lib/distancia';
 import { Icon } from '@/icons/Icon';
@@ -63,7 +64,14 @@ export function IncidentDetail({
             <Skeleton largura={96} altura={16} />
           </View>
         )}
-        {detalhe ? (
+        {detalhe && detalhe.status === 'expirada' ? (
+          <View style={[styles.encerrada, { backgroundColor: cor.surfaceMuted }]}>
+            <Icon name="check-circle" tamanho={16} cor={cor.textSecondary} />
+            <T estilo="caption" cor="textSecondary" cromo numberOfLines={1}>
+              Encerrada
+            </T>
+          </View>
+        ) : detalhe ? (
           <T estilo="caption" cor="textTertiary" numberOfLines={1} style={styles.quando}>
             {tempoRelativo(detalhe.criada_em)}
           </T>
@@ -114,6 +122,34 @@ function CorpoDetalhe({
     detalhe.longitude,
   );
   const rumo = rumoGraus(origem.latitude, origem.longitude, detalhe.latitude, detalhe.longitude);
+
+  if (detalhe.status === 'expirada') {
+    const fim = detalhe.encerrada_em ?? detalhe.atualizada_em;
+    const duracaoS = (Date.parse(fim) - Date.parse(detalhe.criada_em)) / 1000;
+    return (
+      <>
+        <View style={styles.medidor}>
+          <SeverityMeter severidade={detalhe.severidade} tamanho="l" apagado />
+          <T estilo="large" cor="textSecondary" numberOfLines={1}>
+            Era {ROTULO_SEVERIDADE[detalhe.severidade].toLowerCase()}
+          </T>
+        </View>
+        <T estilo="body" cor="textSecondary" style={styles.duracao}>
+          Durou {formatarDuracao(duracaoS)}
+        </T>
+        <ConfirmTimeline
+          itens={detalhe.linha_do_tempo}
+          severidade={detalhe.severidade}
+          encerradaEm={fim}
+        />
+        {detalhe.nota ? (
+          <T estilo="body" cor="textSecondary" numberOfLines={3} style={styles.nota}>
+            “{detalhe.nota}”
+          </T>
+        ) : null}
+      </>
+    );
+  }
 
   return (
     <>
@@ -181,6 +217,18 @@ const styles = StyleSheet.create({
   },
   quando: {
     flexShrink: 0,
+  },
+  encerrada: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    height: 28,
+    paddingHorizontal: 10,
+    borderRadius: 14,
+    flexShrink: 0,
+  },
+  duracao: {
+    marginTop: 8,
   },
   corpo: {
     paddingHorizontal: espaco.gutter,

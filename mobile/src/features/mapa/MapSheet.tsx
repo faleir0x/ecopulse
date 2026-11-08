@@ -163,7 +163,7 @@ export function MapSheet(props: MapSheetProps) {
 
   const conteudoRodape = rota ? (
     rota.rodape
-  ) : modoFoco && detalhe ? (
+  ) : modoFoco && detalhe?.status === 'ativa' ? (
     <DetailFooter
       estado={estadoResposta}
       onConfirmar={onConfirmar}

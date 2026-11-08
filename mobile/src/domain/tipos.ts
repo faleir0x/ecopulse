@@ -21,6 +21,10 @@ export type Ocorrencia = {
   criada_em: string;
   atualizada_em: string;
   expira_em: string;
+  /** Marcas "Já passou" (servidor encerra com min(3, confirmações)). */
+  resolucoes?: number;
+  /** Quando deixou de estar ativa (validade ou "Já passou"). */
+  encerrada_em?: string | null;
 };
 
 /** Em qual ocorrência o relato do próprio aparelho entrou (GET /v1/relatos/{client_id}). */

@@ -2,6 +2,7 @@ import { StyleSheet, View } from 'react-native';
 
 import { T } from '@/components/T';
 import type { Severidade } from '@/domain/tipos';
+import { Icon } from '@/icons/Icon';
 import { useTema } from '@/theme/tema';
 
 import { horaMinuto } from './tempo';
@@ -12,10 +13,12 @@ export const MAX_PONTOS_VISIVEIS = 12;
 export type ConfirmTimelineProps = {
   itens: string[];
   severidade: Severidade;
+  /** Ocorrência encerrada: o fim da linha vira um check com a hora do encerramento. */
+  encerradaEm?: string | null;
 };
 
 /** Total de confirmações e linha do tempo de pontos (o último na cor da severidade). */
-export function ConfirmTimeline({ itens, severidade }: ConfirmTimelineProps) {
+export function ConfirmTimeline({ itens, severidade, encerradaEm = null }: ConfirmTimelineProps) {
   const { cor, sev } = useTema();
   const visiveis = itens.length > MAX_PONTOS_VISIVEIS ? itens.slice(-MAX_PONTOS_VISIVEIS) : itens;
   const total = itens.length;
@@ -36,7 +39,7 @@ export function ConfirmTimeline({ itens, severidade }: ConfirmTimelineProps) {
         <View style={[styles.base, { backgroundColor: cor.surfaceStrong }]} />
         <View style={styles.pontos}>
           {visiveis.map((_item, indice) => {
-            const ultimo = indice === ultimoIndice;
+            const ultimo = indice === ultimoIndice && encerradaEm === null;
             if (!ultimo) {
               return (
                 <View
@@ -56,14 +59,19 @@ export function ConfirmTimeline({ itens, severidade }: ConfirmTimelineProps) {
               </View>
             );
           })}
+          {encerradaEm !== null ? (
+            <View style={[styles.fim, { backgroundColor: cor.surfaceMuted }]}>
+              <Icon name="check-circle" tamanho={16} cor={cor.textSecondary} />
+            </View>
+          ) : null}
         </View>
       </View>
       <View style={styles.eixo}>
         <T estilo="caption" cor="textTertiary" numberOfLines={1}>
           {primeiraHora ?? '—'}
         </T>
-        <T estilo="caption" cor="textTertiary" numberOfLines={1}>
-          agora
+        <T estilo="caption" cor="textTertiary" tabular numberOfLines={1}>
+          {encerradaEm !== null ? horaMinuto(encerradaEm) : 'agora'}
         </T>
       </View>
     </View>
@@ -71,6 +79,9 @@ export function ConfirmTimeline({ itens, severidade }: ConfirmTimelineProps) {
 }
 
 const styles = StyleSheet.create({
+  fim: {
+    paddingLeft: 2,
+  },
   cartao: {
     marginHorizontal: 16,
     marginTop: 20,

@@ -224,7 +224,7 @@ export function TelaAgora() {
 
                   <Entrada indice={5}>
                     <View style={styles.duo}>
-                      <AqiGauge aqi={leitura?.aqi ?? null} />
+                      <AqiGauge aqi={leitura?.aqi ?? null} poluente={leitura?.poluente ?? null} />
                       <RainCard chuva3h={leitura?.chuva_3h ?? null} />
                     </View>
                     <WindCard

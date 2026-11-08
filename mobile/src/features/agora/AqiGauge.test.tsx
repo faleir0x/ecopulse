@@ -50,3 +50,25 @@ describe('AqiGauge', () => {
     expect(getByText('Sem leitura agora')).toBeTruthy();
   });
 });
+
+describe('AqiGauge poluente principal', () => {
+  it('mostra o poluente quando o ar não está bom', async () => {
+    const { getByText } = await render(
+      <TemaProvider inicial="escuro">
+        <AqiGauge aqi={152} poluente="pm2_5" />
+      </TemaProvider>,
+    );
+
+    expect(getByText('Principal: PM2.5')).toBeTruthy();
+  });
+
+  it('não mostra com o ar bom', async () => {
+    const { queryByText } = await render(
+      <TemaProvider inicial="escuro">
+        <AqiGauge aqi={30} poluente="ozonio" />
+      </TemaProvider>,
+    );
+
+    expect(queryByText('Principal: Ozônio')).toBeNull();
+  });
+});

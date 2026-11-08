@@ -3,6 +3,7 @@ import { StyleSheet, View } from 'react-native';
 import { NoReading } from '@/components/NoReading';
 import { T } from '@/components/T';
 import type { LeituraAmbiente } from '@/domain/tipos';
+import { nivelUmidade } from '@/features/agora/escalas';
 import { condicao } from '@/features/agora/tempo';
 import { Icon } from '@/icons/Icon';
 import { useTema } from '@/theme/tema';
@@ -21,7 +22,7 @@ function ehNoite(iso: string): boolean {
 
 /** Temperatura em hero, condição e sensação (HANDOFF §5.2). */
 export function TempHero({ leitura }: TempHeroProps) {
-  const { cor } = useTema();
+  const { cor, sev } = useTema();
 
   if (!leitura || leitura.temperatura === null) {
     return (
@@ -34,6 +35,8 @@ export function TempHero({ leitura }: TempHeroProps) {
   const condicaoAtual = condicao(leitura.codigo_tempo, ehNoite(leitura.medido_em));
   const temperatura = Math.round(leitura.temperatura);
   const sensacao = leitura.sensacao === null ? null : Math.round(leitura.sensacao);
+  const umidade = typeof leitura.umidade === 'number' ? Math.round(leitura.umidade) : null;
+  const seco = nivelUmidade(umidade);
 
   return (
     <View
@@ -41,7 +44,7 @@ export function TempHero({ leitura }: TempHeroProps) {
       accessible
       accessibilityLabel={`${temperatura} graus, ${condicaoAtual.texto}${
         sensacao === null ? '' : `, sensação ${sensacao} graus`
-      }`}
+      }${umidade === null ? '' : `, umidade ${umidade}%`}`}
     >
       <T estilo="hero" heroi tabular numberOfLines={1} style={styles.temperatura}>
         {temperatura}°
@@ -60,6 +63,15 @@ export function TempHero({ leitura }: TempHeroProps) {
         {sensacao === null ? null : (
           <T estilo="caption" cor="textSecondary" numberOfLines={1}>
             Sensação {sensacao}°
+          </T>
+        )}
+        {umidade === null ? null : seco ? (
+          <T estilo="caption" corHex={sev.text[seco]} cromo numberOfLines={1}>
+            Ar seco · {umidade}%
+          </T>
+        ) : (
+          <T estilo="caption" cor="textSecondary" tabular numberOfLines={1}>
+            Umidade {umidade}%
           </T>
         )}
       </View>

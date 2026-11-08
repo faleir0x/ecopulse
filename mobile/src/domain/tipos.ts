@@ -60,7 +60,14 @@ export function nivel(severidade: Severidade): 1 | 2 | 3 | 4 {
 }
 
 /** Espelha LeituraAmbiente (packages/common/src/ecopulse_common/events.py). */
-export type HoraPrevista = { hora: string; temperatura: number; codigo_tempo: number; chuva_mm: number };
+export type HoraPrevista = {
+  hora: string;
+  temperatura: number;
+  codigo_tempo: number;
+  chuva_mm: number;
+  /** % de chance de chuva na hora. */
+  prob_chuva?: number | null;
+};
 
 export type LeituraAmbiente = {
   geohash: string;
@@ -82,6 +89,10 @@ export type LeituraAmbiente = {
   vento_kmh?: number | null;
   vento_direcao?: number | null;
   rajada_kmh?: number | null;
+  /** Umidade relativa (%). */
+  umidade?: number | null;
+  /** Poluente que mais pesa no AQI: pm2_5, pm10, ozonio, no2, so2, co. */
+  poluente?: string | null;
 };
 
 /** Espelha CelulaAmbiente (GET /v1/ambiente/camada): célula geohash5 com a última leitura. */

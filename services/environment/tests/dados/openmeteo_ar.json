@@ -14,6 +14,10 @@
   "current": {
     "time": "2026-11-08T14:00",
     "interval": 3600,
-    "us_aqi": 53
+    "us_aqi": 53,
+    "us_aqi_pm2_5": 53,
+    "us_aqi_pm10": 30,
+    "us_aqi_ozone": 41,
+    "us_aqi_nitrogen_dioxide": 5
   }
 }

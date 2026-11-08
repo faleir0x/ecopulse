@@ -48,7 +48,7 @@ async def test_open_meteo_caso_completo() -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.host == "air-quality-api.open-meteo.com":
-            assert request.url.params["current"] == "us_aqi"
+            assert request.url.params["current"].startswith("us_aqi,us_aqi_pm2_5")
             assert request.url.params["timezone"] == "UTC"
             return httpx.Response(200, json=ar)
         assert request.url.params["forecast_hours"] == "12"
@@ -63,6 +63,9 @@ async def test_open_meteo_caso_completo() -> None:
     assert leitura.vento_kmh == 7.4
     assert leitura.vento_direcao == 132
     assert leitura.rajada_kmh == 18.0
+    assert leitura.umidade == 27
+    assert leitura.poluente == "pm2_5"
+    assert [h.prob_chuva for h in leitura.proximas_horas][:4] == [10, 20, 35, 60]
 
     assert leitura.geohash == GEOHASH5
     assert leitura.latitude == LATITUDE
@@ -215,6 +218,8 @@ async def test_simulador_onda_de_calor() -> None:
     assert 34.0 <= leitura.minima_dia <= leitura.maxima_dia <= 38.0
     assert 150 <= leitura.aqi <= 220
     assert leitura.vento_kmh is not None and 2.0 <= leitura.vento_kmh <= 6.0
+    assert leitura.umidade is not None and leitura.umidade < 30
+    assert leitura.poluente == "pm2_5"
     assert leitura.chuva_mm_h == 0.0
     assert all(chuva == 0.0 for chuva in leitura.chuva_3h)
     assert all(hora.chuva_mm == 0.0 for hora in leitura.proximas_horas)

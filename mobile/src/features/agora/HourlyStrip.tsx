@@ -17,7 +17,7 @@ import { Icon } from '@/icons/Icon';
 import { useTema } from '@/theme/tema';
 import { escalaTemperatura, movimento } from '@/theme/tokens';
 
-import { corNaEscala, posicaoNaFaixa } from './escalas';
+import { PROB_CHUVA_MINIMA, corNaEscala, posicaoNaFaixa } from './escalas';
 
 export type HourlyStripProps = {
   horas: HoraPrevista[] | null;
@@ -103,6 +103,9 @@ export function HourlyStrip({ horas, agora = null }: HourlyStripProps) {
     );
   }
 
+  // A linha de chance de chuva só existe se alguma hora passar do mínimo (senão, sem espaço vazio)
+  const mostrarChuva = horas.some((hora) => (hora.prob_chuva ?? 0) >= PROB_CHUVA_MINIMA);
+
   return (
     <Card estilo={styles.card}>
       <ScrollView
@@ -158,6 +161,17 @@ export function HourlyStrip({ horas, agora = null }: HourlyStripProps) {
               >
                 {temperatura === null ? '—' : `${Math.round(temperatura)}°`}
               </T>
+              {mostrarChuva ? (
+                <T
+                  estilo="caption"
+                  corHex={cor.rain}
+                  tabular
+                  numberOfLines={1}
+                  style={(hora.prob_chuva ?? 0) >= PROB_CHUVA_MINIMA ? undefined : styles.oculto}
+                >
+                  {hora.prob_chuva ?? 0}%
+                </T>
+              ) : null}
             </View>
           );
         })}
@@ -167,6 +181,9 @@ export function HourlyStrip({ horas, agora = null }: HourlyStripProps) {
 }
 
 const styles = StyleSheet.create({
+  oculto: {
+    opacity: 0,
+  },
   card: {
     paddingVertical: 14,
     paddingHorizontal: 10,

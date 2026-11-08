@@ -57,12 +57,34 @@ def _aqi(dados: dict[str, Any]) -> int:
     return _inteiro(atual.get("us_aqi"), "current.us_aqi")
 
 
+# Sub-índice US AQI de cada poluente → código que o app mostra
+SUBINDICES = {
+    "us_aqi_pm2_5": "pm2_5",
+    "us_aqi_pm10": "pm10",
+    "us_aqi_ozone": "ozonio",
+    "us_aqi_nitrogen_dioxide": "no2",
+    "us_aqi_sulphur_dioxide": "so2",
+    "us_aqi_carbon_monoxide": "co",
+}
+
+
+def _poluente(dados: dict[str, Any]) -> str | None:
+    """Poluente com o maior sub-índice (o que define o AQI); None sem dados."""
+    atual = dados.get("current")
+    if not isinstance(atual, dict):
+        return None
+    valores = {codigo: _opcional(atual.get(campo)) for campo, codigo in SUBINDICES.items()}
+    presentes = {codigo: valor for codigo, valor in valores.items() if valor is not None}
+    return max(presentes, key=lambda codigo: presentes[codigo]) if presentes else None
+
+
 def _montar_leitura(
     dados: dict[str, Any],
     geohash5: str,
     latitude: float,
     longitude: float,
     aqi: int | None,
+    poluente: str | None = None,
 ) -> LeituraAmbiente:
     atual = _objeto(dados.get("current"), "current")
     horaria = _objeto(dados.get("hourly"), "hourly")
@@ -73,6 +95,9 @@ def _montar_leitura(
     temperaturas = _lista(horaria.get("temperature_2m"), "hourly.temperature_2m")
     codigos = _lista(horaria.get("weather_code"), "hourly.weather_code")
     chuvas = _lista(horaria.get("precipitation"), "hourly.precipitation")
+    probabilidades = horaria.get("precipitation_probability")
+    if not isinstance(probabilidades, list):
+        probabilidades = []
     if min(len(horas), len(temperaturas), len(codigos), len(chuvas)) < HORAS:
         raise ValueError("previsão horária incompleta")
 
@@ -82,6 +107,7 @@ def _montar_leitura(
             temperatura=_numero(temperaturas[i], "hourly.temperature_2m"),
             codigo_tempo=_inteiro(codigos[i], "hourly.weather_code"),
             chuva_mm=_numero(chuvas[i], "hourly.precipitation"),
+            prob_chuva=_percentual(probabilidades[i] if i < len(probabilidades) else None),
         )
         for i in range(HORAS)
     ]
@@ -120,6 +146,8 @@ def _montar_leitura(
         vento_kmh=_opcional(atual.get("wind_speed_10m")),
         vento_direcao=_direcao(atual.get("wind_direction_10m")),
         rajada_kmh=_opcional(atual.get("wind_gusts_10m")),
+        umidade=_percentual(atual.get("relative_humidity_2m")),
+        poluente=poluente,
     )
 
 
@@ -128,6 +156,11 @@ def _opcional(valor: Any) -> float | None:
     if isinstance(valor, bool) or not isinstance(valor, (int, float)):
         return None
     return round(float(valor), 1)
+
+
+def _percentual(valor: Any) -> int | None:
+    numero = _opcional(valor)
+    return None if numero is None else max(0, min(100, round(numero)))
 
 
 def _direcao(valor: Any) -> int | None:
@@ -188,9 +221,9 @@ class OpenMeteo:
             "longitude": longitude,
             "current": (
                 "temperature_2m,apparent_temperature,weather_code,precipitation,"
-                "wind_speed_10m,wind_direction_10m,wind_gusts_10m"
+                "wind_speed_10m,wind_direction_10m,wind_gusts_10m,relative_humidity_2m"
             ),
-            "hourly": "temperature_2m,weather_code,precipitation",
+            "hourly": "temperature_2m,weather_code,precipitation,precipitation_probability",
             "forecast_hours": HORAS,
             "daily": "temperature_2m_max,temperature_2m_min",
             "forecast_days": 1,
@@ -201,7 +234,7 @@ class OpenMeteo:
         parametros_ar: dict[str, str | int | float] = {
             "latitude": latitude,
             "longitude": longitude,
-            "current": "us_aqi",
+            "current": "us_aqi," + ",".join(SUBINDICES),
             "timezone": "UTC",
         }
 
@@ -220,14 +253,16 @@ class OpenMeteo:
             ) from previsao
 
         aqi: int | None = None
+        poluente: str | None = None
         if not isinstance(ar, BaseException):
             try:
                 aqi = _aqi(ar)
+                poluente = _poluente(ar)
             except (KeyError, TypeError, ValueError):
                 aqi = None
 
         try:
-            return _montar_leitura(previsao, geohash5, latitude, longitude, aqi)
+            return _montar_leitura(previsao, geohash5, latitude, longitude, aqi, poluente)
         except (KeyError, TypeError, ValueError, IndexError) as exc:
             raise FonteIndisponivel(f"resposta inesperada da previsão: {exc}") from exc
 
@@ -236,7 +271,7 @@ class Simulador:
     """Valores plausíveis para São Paulo, determinísticos por (geohash5, hora) com `semente`.
 
     Para a demonstração: `onda_de_calor=True` puxa temperatura para 34–38 °C, AQI para 150–220 e
-    vento para 2–6 km/h.
+    vento para 2–6 km/h, umidade para 15–28% e o poluente principal para PM2.5.
     """
 
     nome = "simulador"
@@ -311,6 +346,9 @@ class Simulador:
                 temperatura=temperaturas[i],
                 codigo_tempo=_codigo_tempo(chuvas_hora[i], aleatorio),
                 chuva_mm=chuvas_hora[i],
+                prob_chuva=(
+                    aleatorio.randint(55, 90) if chuvas_hora[i] > 0 else aleatorio.randint(0, 25)
+                ),
             )
             for i in range(HORAS)
         ]
@@ -338,4 +376,9 @@ class Simulador:
             vento_kmh=vento,
             vento_direcao=aleatorio.randrange(0, 360, 5),
             rajada_kmh=round(vento * aleatorio.uniform(1.4, 2.0), 1),
+            # Onda de calor = ar seco (alerta abaixo de 30%) e fumaça (PM2.5)
+            umidade=aleatorio.randint(15, 28) if self.onda_de_calor else aleatorio.randint(45, 85),
+            poluente="pm2_5"
+            if self.onda_de_calor
+            else aleatorio.choice(["pm2_5", "pm10", "ozonio"]),
         )

@@ -17,10 +17,12 @@ import { Icon } from '@/icons/Icon';
 import { useTema } from '@/theme/tema';
 import { espaco, faixasAqi, movimento } from '@/theme/tokens';
 
-import { nivelAqi } from './escalas';
+import { ROTULO_POLUENTE, nivelAqi } from './escalas';
 
 export type AqiGaugeProps = {
   aqi: number | null;
+  /** Poluente que mais pesa no AQI (código do servidor). */
+  poluente?: string | null;
 };
 
 const CURVA_SAIDA = Easing.bezier(
@@ -43,7 +45,7 @@ const CENTRO_X = 74;
 const CENTRO_Y = 72;
 
 /** Gauge semicircular de 21 segmentos do AQI (HANDOFF §5.5). */
-export function AqiGauge({ aqi }: AqiGaugeProps) {
+export function AqiGauge({ aqi, poluente = null }: AqiGaugeProps) {
   const { cor, sev, reduzirMovimento } = useTema();
   const entrada = useSharedValue(reduzirMovimento ? 1 : 0);
 
@@ -127,6 +129,12 @@ export function AqiGauge({ aqi }: AqiGaugeProps) {
           </T>
         </View>
       )}
+      {/* Com o ar ruim, diz o que pesa: o índice tem causa */}
+      {nivel !== null && nivel !== 'baixo' && poluente && ROTULO_POLUENTE[poluente] ? (
+        <T estilo="caption" cor="textSecondary" numberOfLines={1}>
+          Principal: {ROTULO_POLUENTE[poluente]}
+        </T>
+      ) : null}
     </Card>
   );
 }

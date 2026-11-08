@@ -185,3 +185,25 @@ export function nivelCalorMedido(sensacao: number | null | undefined): Severidad
 
 /** Vento abaixo disso não dispersa a poluição (ar parado). */
 export const VENTO_FRACO_KMH = 10;
+
+/** Umidade baixa como alerta (faixas da Defesa Civil): < 30% atenção, < 20% alerta, < 12% emergência. */
+export function nivelUmidade(umidade: number | null | undefined): Severidade | null {
+  if (umidade === null || umidade === undefined || !Number.isFinite(umidade)) return null;
+  if (umidade < 12) return 'critico';
+  if (umidade < 20) return 'alto';
+  if (umidade < 30) return 'moderado';
+  return null;
+}
+
+/** Nome curto do poluente principal do AQI. */
+export const ROTULO_POLUENTE: Record<string, string> = {
+  pm2_5: 'PM2.5',
+  pm10: 'PM10',
+  ozonio: 'Ozônio',
+  no2: 'NO₂',
+  so2: 'SO₂',
+  co: 'CO',
+};
+
+/** Chance de chuva a partir da qual a hora mostra o percentual. */
+export const PROB_CHUVA_MINIMA = 20;

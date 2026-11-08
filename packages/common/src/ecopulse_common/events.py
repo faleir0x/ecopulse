@@ -92,6 +92,7 @@ class HoraPrevista(BaseModel):
     temperatura: float
     codigo_tempo: int  # WMO weather code
     chuva_mm: float
+    prob_chuva: int | None = None  # % de chance de chuva na hora
 
 
 class LeituraAmbiente(BaseModel):
@@ -115,3 +116,6 @@ class LeituraAmbiente(BaseModel):
     vento_kmh: float | None = None
     vento_direcao: int | None = None
     rajada_kmh: float | None = None
+    umidade: int | None = None  # % relativa a 2 m
+    # Poluente que mais pesa no AQI: pm2_5, pm10, ozonio, no2, so2 ou co
+    poluente: str | None = None

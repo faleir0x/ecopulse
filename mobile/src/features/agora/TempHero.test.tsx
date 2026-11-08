@@ -68,3 +68,25 @@ describe('TempHero', () => {
     expect(getByText('—')).toBeTruthy();
   });
 });
+
+describe('TempHero umidade', () => {
+  it('mostra a umidade normal', async () => {
+    const { getByText } = await render(
+      <TemaProvider inicial="escuro">
+        <TempHero leitura={{ ...LEITURA, umidade: 72 }} />
+      </TemaProvider>,
+    );
+
+    expect(getByText('Umidade 72%')).toBeTruthy();
+  });
+
+  it('avisa ar seco abaixo de 30%', async () => {
+    const { getByText } = await render(
+      <TemaProvider inicial="escuro">
+        <TempHero leitura={{ ...LEITURA, umidade: 24 }} />
+      </TemaProvider>,
+    );
+
+    expect(getByText('Ar seco · 24%')).toBeTruthy();
+  });
+});

@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { OfflinePill } from '@/components/OfflinePill';
@@ -105,6 +105,17 @@ export function TelaAgora() {
     void ocorrencias.refetch();
   };
 
+  // Puxar para atualizar: leitura do ambiente e ocorrências em volta
+  const [atualizando, setAtualizando] = useState(false);
+  const atualizar = async () => {
+    setAtualizando(true);
+    try {
+      await Promise.all([ambiente.refetch(), ocorrencias.refetch()]);
+    } finally {
+      setAtualizando(false);
+    }
+  };
+
   const abrirMapa = () => router.navigate('/mapa');
 
   const abrirOcorrencia = (id: number) => {
@@ -127,6 +138,16 @@ export function TelaAgora() {
           if (rolouAgora !== rolou) setRolou(rolouAgora);
         }}
         scrollEventThrottle={16}
+        refreshControl={
+          <RefreshControl
+            refreshing={atualizando}
+            onRefresh={() => void atualizar()}
+            progressViewOffset={insets.top}
+            colors={[cor.textPrimary]}
+            progressBackgroundColor={cor.surface}
+            tintColor={cor.textPrimary}
+          />
+        }
       >
         <View style={styles.conteudo}>
           {!estado.online || estado.pendentes > 0 ? (

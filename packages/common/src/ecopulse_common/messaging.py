@@ -19,7 +19,13 @@ ecopulse.dlx (direct) ──"dead"──► ecopulse.dlq
 from dataclasses import dataclass
 
 import aio_pika
-from aio_pika.abc import AbstractChannel, AbstractExchange, AbstractRobustConnection, FieldValue
+from aio_pika.abc import (
+    AbstractChannel,
+    AbstractExchange,
+    AbstractRobustConnection,
+    FieldValue,
+)
+from pamqp.common import FieldTable
 
 from ecopulse_common.events import Envelope
 
@@ -34,6 +40,10 @@ PARTITION_HEADER = "geohash5"
 ATTEMPT_HEADER = "x-attempt"  # 0 na primeira entrega
 ERROR_HEADER = "x-error"
 RETRY_DELAYS_MS: tuple[int, ...] = (1_000, 10_000, 60_000)
+
+# Filas quorum: replicadas (Raft) nos nós do cluster RabbitMQ; sobrevivem à queda de 1 nó de 3.
+# Use em toda fila durável compartilhada (as exclusivas/temporárias continuam clássicas).
+QUORUM: FieldTable = {"x-queue-type": "quorum"}
 
 
 def partition_queue(index: int) -> str:
@@ -80,7 +90,7 @@ async def declare_topology(channel: AbstractChannel, partitions: int) -> Topolog
     )
     dlx = await channel.declare_exchange(DLX, aio_pika.ExchangeType.DIRECT, durable=True)
 
-    dlq = await channel.declare_queue(DLQ, durable=True)
+    dlq = await channel.declare_queue(DLQ, durable=True, arguments=QUORUM)
     await dlq.bind(dlx, routing_key=DLQ_ROUTING_KEY)
 
     for delay_ms in RETRY_DELAYS_MS:
@@ -88,6 +98,7 @@ async def declare_topology(channel: AbstractChannel, partitions: int) -> Topolog
             retry_queue(delay_ms),
             durable=True,
             arguments={
+                **QUORUM,
                 "x-message-ttl": delay_ms,
                 "x-dead-letter-exchange": RELATOS_EXCHANGE,
             },
@@ -101,6 +112,7 @@ async def declare_topology(channel: AbstractChannel, partitions: int) -> Topolog
             nome,
             durable=True,
             arguments={
+                **QUORUM,
                 "x-dead-letter-exchange": DLX,
                 "x-dead-letter-routing-key": DLQ_ROUTING_KEY,
             },

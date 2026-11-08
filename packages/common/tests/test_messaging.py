@@ -10,6 +10,7 @@ from ecopulse_common.messaging import (
     DLX,
     EVENTS_EXCHANGE,
     PARTITION_HEADER,
+    QUORUM,
     RELATOS_EXCHANGE,
     RETRY_DELAYS_MS,
     RETRY_EXCHANGE,
@@ -118,7 +119,7 @@ async def test_declare_topology_declara_dlq() -> None:
     assert DLQ in channel.queues
     assert channel.queues[DLQ].bind_calls == [(DLX, DLQ_ROUTING_KEY)]
     dlq_args = next(args for nome, _, args in channel.queue_calls if nome == DLQ)
-    assert dlq_args is None
+    assert dlq_args == QUORUM
 
 
 async def test_declare_topology_declara_particoes() -> None:
@@ -131,6 +132,7 @@ async def test_declare_topology_declara_particoes() -> None:
     for nome in esperadas:
         args = next(args for chamada, _, args in channel.queue_calls if chamada == nome)
         assert args == {
+            **QUORUM,
             "x-dead-letter-exchange": DLX,
             "x-dead-letter-routing-key": DLQ_ROUTING_KEY,
         }
@@ -146,6 +148,7 @@ async def test_declare_topology_declara_filas_de_retry() -> None:
         nome = retry_queue(delay_ms)
         args = next(args for chamada, _, args in channel.queue_calls if chamada == nome)
         assert args == {
+            **QUORUM,
             "x-message-ttl": delay_ms,
             "x-dead-letter-exchange": RELATOS_EXCHANGE,
         }

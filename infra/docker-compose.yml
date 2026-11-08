@@ -26,25 +26,82 @@ x-python-service: &python-service
     redis-cluster-init: { condition: service_completed_successfully }
 
 services:
-  rabbitmq:
+  # RabbitMQ em cluster (3 nós) com filas quorum; os serviços falam com o HAProxy
+  rabbitmq-1:
     image: rabbitmq:3.13-management
     restart: unless-stopped
-    hostname: rabbitmq
+    hostname: rabbitmq-1
     networks: [ecopulse]
-    ports:
-      - "${RABBITMQ_PORT:-5672}:5672"
-      - "${RABBITMQ_UI_PORT:-15672}:15672"
     environment:
-      RABBITMQ_DEFAULT_USER: ecopulse
-      RABBITMQ_DEFAULT_PASS: ecopulse
+      # Mesmo cookie Erlang nos 3 nós (só para a rede local do compose)
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: -setcookie ${RABBITMQ_COOKIE:-ecopulse-cookie-local}
+      RABBITMQ_CTL_ERL_ARGS: -setcookie ${RABBITMQ_COOKIE:-ecopulse-cookie-local}
     volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
+      - rabbitmq_1:/var/lib/rabbitmq
       - ./rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
+      - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
       interval: 10s
       timeout: 5s
+      retries: 18
+
+  rabbitmq-2:
+    image: rabbitmq:3.13-management
+    restart: unless-stopped
+    hostname: rabbitmq-2
+    networks: [ecopulse]
+    environment:
+      # Mesmo cookie Erlang nos 3 nós (só para a rede local do compose)
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: -setcookie ${RABBITMQ_COOKIE:-ecopulse-cookie-local}
+      RABBITMQ_CTL_ERL_ARGS: -setcookie ${RABBITMQ_COOKIE:-ecopulse-cookie-local}
+    volumes:
+      - rabbitmq_2:/var/lib/rabbitmq
+      - ./rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
+      - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+
+  rabbitmq-3:
+    image: rabbitmq:3.13-management
+    restart: unless-stopped
+    hostname: rabbitmq-3
+    networks: [ecopulse]
+    environment:
+      # Mesmo cookie Erlang nos 3 nós (só para a rede local do compose)
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: -setcookie ${RABBITMQ_COOKIE:-ecopulse-cookie-local}
+      RABBITMQ_CTL_ERL_ARGS: -setcookie ${RABBITMQ_COOKIE:-ecopulse-cookie-local}
+    volumes:
+      - rabbitmq_3:/var/lib/rabbitmq
+      - ./rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
+      - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+
+  rabbitmq:
+    image: haproxy:3.0-alpine
+    restart: unless-stopped
+    networks: [ecopulse]
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_UI_PORT:-15672}:15672"
+    volumes:
+      - ./rabbitmq/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 5672"]
+      interval: 5s
+      timeout: 3s
       retries: 10
+    depends_on:
+      rabbitmq-1: { condition: service_healthy }
+      rabbitmq-2: { condition: service_healthy }
+      rabbitmq-3: { condition: service_healthy }
 
   postgres:
     image: postgis/postgis:16-3.4
@@ -65,7 +122,7 @@ services:
       timeout: 5s
       retries: 10
 
-  # Redis Cluster: 3 mestres, IPs fixos para o cluster sobreviver a reinícios.
+  # Redis Cluster: 3 mestres + 3 réplicas, IPs fixos para o cluster sobreviver a reinícios.
   # Os nós se anunciam pelo hostname; fora do Docker, use ECOPULSE_REDIS_REMAP_LOCALHOST=true.
   redis-1:
     <<: *redis-node
@@ -73,6 +130,7 @@ services:
     command: >-
       redis-server --port 7001 --cluster-enabled yes --cluster-config-file nodes.conf
       --cluster-announce-hostname redis-1 --cluster-preferred-endpoint-type hostname
+      --cluster-node-timeout 5000
       --appendonly yes
     ports: ["7001:7001"]
     networks: { ecopulse: { ipv4_address: 10.89.70.11 } }
@@ -84,6 +142,7 @@ services:
     command: >-
       redis-server --port 7002 --cluster-enabled yes --cluster-config-file nodes.conf
       --cluster-announce-hostname redis-2 --cluster-preferred-endpoint-type hostname
+      --cluster-node-timeout 5000
       --appendonly yes
     ports: ["7002:7002"]
     networks: { ecopulse: { ipv4_address: 10.89.70.12 } }
@@ -95,10 +154,47 @@ services:
     command: >-
       redis-server --port 7003 --cluster-enabled yes --cluster-config-file nodes.conf
       --cluster-announce-hostname redis-3 --cluster-preferred-endpoint-type hostname
+      --cluster-node-timeout 5000
       --appendonly yes
     ports: ["7003:7003"]
     networks: { ecopulse: { ipv4_address: 10.89.70.13 } }
     volumes: [redis_3:/data]
+
+  redis-4:
+    <<: *redis-node
+    environment: { REDIS_PORT: 7004 }
+    command: >-
+      redis-server --port 7004 --cluster-enabled yes --cluster-config-file nodes.conf
+      --cluster-announce-hostname redis-4 --cluster-preferred-endpoint-type hostname
+      --cluster-node-timeout 5000
+      --appendonly yes
+    ports: ["7004:7004"]
+    networks: { ecopulse: { ipv4_address: 10.89.70.14 } }
+    volumes: [redis_4:/data]
+
+  redis-5:
+    <<: *redis-node
+    environment: { REDIS_PORT: 7005 }
+    command: >-
+      redis-server --port 7005 --cluster-enabled yes --cluster-config-file nodes.conf
+      --cluster-announce-hostname redis-5 --cluster-preferred-endpoint-type hostname
+      --cluster-node-timeout 5000
+      --appendonly yes
+    ports: ["7005:7005"]
+    networks: { ecopulse: { ipv4_address: 10.89.70.15 } }
+    volumes: [redis_5:/data]
+
+  redis-6:
+    <<: *redis-node
+    environment: { REDIS_PORT: 7006 }
+    command: >-
+      redis-server --port 7006 --cluster-enabled yes --cluster-config-file nodes.conf
+      --cluster-announce-hostname redis-6 --cluster-preferred-endpoint-type hostname
+      --cluster-node-timeout 5000
+      --appendonly yes
+    ports: ["7006:7006"]
+    networks: { ecopulse: { ipv4_address: 10.89.70.16 } }
+    volumes: [redis_6:/data]
 
   redis-cluster-init:
     image: redis:7.4-alpine
@@ -109,6 +205,9 @@ services:
       redis-1: { condition: service_healthy }
       redis-2: { condition: service_healthy }
       redis-3: { condition: service_healthy }
+      redis-4: { condition: service_healthy }
+      redis-5: { condition: service_healthy }
+      redis-6: { condition: service_healthy }
 
   api:
     <<: *python-service
@@ -171,8 +270,13 @@ networks:
         - subnet: 10.89.70.0/24
 
 volumes:
-  rabbitmq_data:
+  rabbitmq_1:
+  rabbitmq_2:
+  rabbitmq_3:
   pg_data:
   redis_1:
   redis_2:
   redis_3:
+  redis_4:
+  redis_5:
+  redis_6:

@@ -135,6 +135,20 @@ Identificação anônima por aparelho (UUID gerado na instalação).
 - `/health` e `/ready` em todos os serviços.
 - Painel do RabbitMQ para filas, DLQ e vazão.
 
+## Alta disponibilidade
+
+```
+serviços ──► HAProxy :5672 ──► rabbitmq-1 ┐
+                           ──► rabbitmq-2 ├─ cluster, filas quorum (Raft) com 3 réplicas,
+                           ──► rabbitmq-3 ┘  líderes balanceados entre os nós
+Redis Cluster: redis-1..3 mestres + redis-4..6 réplicas (uma por mestre), node timeout 5 s
+```
+
+- **RabbitMQ:** 3 nós com `pause_minority`; toda fila durável compartilhada é *quorum*. A queda de 1 nó não perde mensagens nem recusa relatos; o HAProxy tira o nó morto e a reconexão robusta do aio-pika cai num nó vivo.
+- **Redis:** a réplica de um mestre derrubado é promovida em ~7 s; o cliente do cluster segue o novo mapa de slots.
+- **PostgreSQL:** um nó (failover automático exige Patroni/etcd, pesado para o laptop). É a fonte da verdade com volume persistente; fica como evolução.
+- Medido no compose: 40 relatos com um nó RabbitMQ derrubado no meio → 40 aceitos, 40 gravados; mestre Redis derrubado → réplica assume em 7,6 s com a API respondendo (`infra/demo/falha-*.sh`).
+
 ## Cenários de demonstração
 
 1. Relato em um celular, alerta no outro em segundos.
@@ -145,4 +159,4 @@ Identificação anônima por aparelho (UUID gerado na instalação).
 
 ## O que revisar se o sistema crescer
 
-Kafka para telemetria contínua dos aparelhos; H3 no lugar de GeoHash; réplicas no Redis Cluster; cluster RabbitMQ com quorum queues; push remoto via FCM/APNs; autenticação.
+Kafka para telemetria contínua dos aparelhos; H3 no lugar de GeoHash; PostgreSQL com réplica e failover (Patroni); push remoto via FCM/APNs; autenticação.

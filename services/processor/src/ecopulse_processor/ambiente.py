@@ -6,6 +6,7 @@ import logging
 import asyncpg
 from aio_pika.abc import AbstractChannel, AbstractExchange, AbstractIncomingMessage
 
+from ecopulse_common import messaging
 from ecopulse_common.events import Envelope, LeituraAmbiente
 
 FILA = "processor.ambiente"
@@ -64,6 +65,6 @@ async def iniciar(channel: AbstractChannel, events: AbstractExchange, pool: asyn
 
         await message.ack()
 
-    fila = await channel.declare_queue(FILA, durable=True)
+    fila = await channel.declare_queue(FILA, durable=True, arguments=messaging.QUORUM)
     await fila.bind(events, routing_key=BINDING)
     await fila.consume(_processar, no_ack=False)

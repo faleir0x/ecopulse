@@ -15,6 +15,7 @@ from aio_pika.abc import AbstractChannel, AbstractExchange, AbstractIncomingMess
 from redis.asyncio.cluster import RedisCluster
 from redis.exceptions import RedisError
 
+from ecopulse_common import messaging
 from ecopulse_common.events import Envelope, OcorrenciaPayload
 from ecopulse_realtime import protocolo
 
@@ -63,6 +64,6 @@ async def iniciar(channel: AbstractChannel, events: AbstractExchange, redis: Red
         else:
             await message.ack()
 
-    fila = await channel.declare_queue(FILA, durable=True)
+    fila = await channel.declare_queue(FILA, durable=True, arguments=messaging.QUORUM)
     await fila.bind(events, routing_key=BINDING)
     await fila.consume(_repassar, no_ack=False)

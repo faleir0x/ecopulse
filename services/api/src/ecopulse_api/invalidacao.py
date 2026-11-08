@@ -13,6 +13,7 @@ from redis.asyncio.cluster import RedisCluster
 from redis.exceptions import RedisError
 
 from ecopulse_api import leitura
+from ecopulse_common import messaging
 from ecopulse_common.events import Envelope
 
 log = logging.getLogger(__name__)
@@ -40,6 +41,6 @@ async def iniciar(channel: AbstractChannel, events: AbstractExchange, redis: Red
         finally:
             await message.ack()
 
-    fila = await channel.declare_queue(FILA, durable=True)
+    fila = await channel.declare_queue(FILA, durable=True, arguments=messaging.QUORUM)
     await fila.bind(events, routing_key=BINDING)
     await fila.consume(_invalidar, no_ack=False)

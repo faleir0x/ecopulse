@@ -27,3 +27,7 @@ web-build/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Design (fica só local; o app copia os assets que usa)
+design/
+mobile-design/

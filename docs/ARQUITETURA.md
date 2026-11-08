@@ -98,7 +98,22 @@ Exchange topic `ecopulse.events`. Envelope: `event_id, type, version, occurred_a
 
 - Redis Cluster: chave `cell:{geohash5}:ocorrencias` com TTL de 30 s (cache-aside), invalidada por `ocorrencia.atualizada`.
 - Rate limit por aparelho (token bucket).
-- Pub/sub por célula para o `realtime`.
+- Pub/sub por célula para o `realtime` (detalhes abaixo).
+
+## Tempo real
+
+```
+ocorrencia.* ─► fila realtime.ponte (compartilhada) ─► SPUBLISH ocorrencias:{geohash6}
+                                                         │ Redis Cluster (sharded pub/sub:
+                                                         │ cada canal vive no nó do seu slot)
+                       realtime #1 ◄── SSUBSCRIBE ───────┤
+                       realtime #2 ◄── SSUBSCRIBE ───────┘  só das células dos seus clientes
+```
+
+- **Ponte:** uma fila durável compartilhada entre as instâncias; cada evento vai ao Redis uma única vez, por qualquer instância.
+- **Assinaturas:** cada instância conta referências por célula e só fica inscrita enquanto algum cliente dela quer a célula. Adicionar instâncias não multiplica o tráfego no broker.
+- **Backpressure:** cada conexão tem uma fila de saída de 100 mensagens; cliente lento é desconectado (código 1013) em vez de atrasar os outros. O app reconecta e recarrega pelo `GET`.
+- Medido no compose: relato → alerta no WebSocket em ~0,7 s (o relay da outbox verifica a cada 0,5 s).
 
 ## API
 

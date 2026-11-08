@@ -34,7 +34,7 @@ ignore = ["RUF001", "RUF002", "RUF003"]  # acentos do português em strings/come
 python_version = "3.13"
 strict = true
 plugins = ["pydantic.mypy"]
-mypy_path = ["packages/common/src", "services/api/src", "services/processor/src"]
+mypy_path = ["packages/common/src", "services/api/src", "services/processor/src", "services/realtime/src"]
 explicit_package_bases = true
 
 [[tool.mypy.overrides]]

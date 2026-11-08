@@ -114,6 +114,12 @@ services:
       dockerfile: infra/docker/python.Dockerfile
       args: { SERVICE: api }
     command: ["uvicorn", "ecopulse_api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    healthcheck:
+      # python em vez de curl: a imagem slim não tem curl
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
     ports:
       - "${API_PORT:-8000}:8000"
 
@@ -124,6 +130,22 @@ services:
       dockerfile: infra/docker/python.Dockerfile
       args: { SERVICE: processor }
     command: ["python", "-m", "ecopulse_processor"]
+
+  realtime:
+    <<: *python-service
+    build:
+      context: ..
+      dockerfile: infra/docker/python.Dockerfile
+      args: { SERVICE: realtime }
+    command: ["uvicorn", "ecopulse_realtime.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    healthcheck:
+      # python em vez de curl: a imagem slim não tem curl
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    ports:
+      - "${REALTIME_PORT:-8002}:8000"
 
 networks:
   ecopulse:

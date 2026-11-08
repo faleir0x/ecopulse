@@ -32,7 +32,7 @@ Cada etapa termina com **commit + push** na branch `caue`.
 - [x] **2.3** Rate limit por aparelho
 
 ## Fase 3: Tempo real
-- [ ] **3.1** Serviço `realtime`: WebSocket, assinatura por célula geohash, Redis pub/sub
+- [x] **3.1** Serviço `realtime`: WebSocket, assinatura por célula geohash, Redis pub/sub
 - [ ] **3.2** Teste de integração com várias instâncias
 
 ## Fase 4: Mobile (depende do design)

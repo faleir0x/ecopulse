@@ -85,6 +85,11 @@ describe('TabBar', () => {
     expect(getByLabelText('Alertas')).toBeTruthy();
     expect(getByLabelText('Ajustes')).toBeTruthy();
     expect(getByLabelText('Relatar')).toBeTruthy();
+
+    // O visual (ícones, rótulo, badge) só desenha depois de medir a largura da barra
+    await fireEvent(getByLabelText('Agora').parent!, 'layout', {
+      nativeEvent: { layout: { width: 256, height: 64, x: 0, y: 0 } },
+    });
     expect(getByText('2')).toBeTruthy();
   });
 

@@ -23,9 +23,12 @@ export function TelaMeusRelatos() {
   const insets = useSafeAreaInsets();
   const [visualizador, setVisualizador] = useState<Visualizador | null>(null);
 
+  // Aberta por link (sem histórico) não há para onde voltar: cai em Ajustes
+  const voltar = () => (router.canGoBack() ? router.back() : router.replace('/ajustes'));
+
   const relatar = () => {
     setRelatarAberto(true);
-    router.back();
+    voltar();
   };
 
   const abrirNoMapa = (ocorrenciaId: number) => {
@@ -37,7 +40,7 @@ export function TelaMeusRelatos() {
     <View style={[styles.raiz, { backgroundColor: cor.background }]}>
       <View style={[styles.cabecalho, { paddingTop: insets.top + espaco.sm }]}>
         <Pressable
-          onPress={() => router.back()}
+          onPress={voltar}
           accessibilityRole="button"
           accessibilityLabel="Voltar"
           style={[styles.voltar, { backgroundColor: cor.surfaceMuted }]}

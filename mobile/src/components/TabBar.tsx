@@ -74,61 +74,122 @@ export function larguras(larguraBarra: number, quantidade: number) {
   return { ativa: inativa * PESO_ATIVA, inativa };
 }
 
-function AbaAnimada({
-  largura,
+const ICONE = tamanho.iconLg;
+const ESPACO_ROTULO = 6;
+const PADDING_ATIVA = 12;
+const TOPO_ABA = (tamanho.tabBar - ALTURA_ABA) / 2 - StyleSheet.hairlineWidth;
+
+/** x (a partir da borda interna da barra) da aba `i` quando a ativa é `ativa`. Exportada para teste. */
+export function posicaoAba(i: number, ativa: number, m: { ativa: number; inativa: number }): number {
+  return PADDING + i * (m.inativa + GAP) + (i > ativa ? m.ativa - m.inativa : 0);
+}
+
+/**
+ * Parte visual de uma aba. Anima SÓ transform e opacity (motion.rules): a caixa tem sempre a
+ * largura da ativa e desliza com translateX; o ícone desliza dentro dela e o rótulo aparece por
+ * opacidade. Nada de animar width (recalcula layout a cada quadro e travava a troca de aba).
+ */
+function AbaVisual({
+  x,
+  foco,
+  medidas,
+  rotulo,
+  icone,
+  badge,
   animar,
-  children,
 }: {
-  largura: number | null;
+  x: number;
+  foco: boolean;
+  medidas: { ativa: number; inativa: number };
+  rotulo: string;
+  icone: NomeIcone;
+  badge: string | null;
   animar: boolean;
-  children: React.ReactNode;
 }) {
-  const valor = useSharedValue(largura ?? 0);
+  const { cor, sev } = useTema();
+  const [larguraRotulo, setLarguraRotulo] = useState(0);
+  const maxRotulo = medidas.ativa - PADDING_ATIVA * 2 - ICONE - ESPACO_ROTULO;
+  const rotuloVisivel = Math.min(larguraRotulo, maxRotulo);
+  const iconeInativo = (medidas.inativa - ICONE) / 2;
+  const iconeAtivo = (medidas.ativa - (ICONE + ESPACO_ROTULO + rotuloVisivel)) / 2;
+
+  const posX = useSharedValue(x);
+  const iconeX = useSharedValue(foco ? iconeAtivo : iconeInativo);
+  const opacidadeRotulo = useSharedValue(foco ? 1 : 0);
   const posicionada = useRef(false);
 
   useEffect(() => {
-    if (largura === null) return;
-    // A primeira largura entra direto; só as trocas de aba animam
-    valor.value =
-      animar && posicionada.current
-        ? withTiming(largura, { duration: 460, easing: CURVA_SHEET })
-        : largura;
-    posicionada.current = true;
-  }, [largura, animar, valor]);
+    const destinoIcone = foco ? iconeAtivo : iconeInativo;
+    if (!animar || !posicionada.current) {
+      posX.value = x;
+      iconeX.value = destinoIcone;
+      opacidadeRotulo.value = foco ? 1 : 0;
+      posicionada.current = true;
+      return;
+    }
+    const config = { duration: 460, easing: CURVA_SHEET };
+    posX.value = withTiming(x, config);
+    iconeX.value = withTiming(destinoIcone, config);
+    // O rótulo some rápido e aparece depois que a aba já abriu espaço
+    opacidadeRotulo.value = foco
+      ? withTiming(1, { duration: 260, easing: CURVA_SHEET })
+      : withTiming(0, { duration: 120 });
+  }, [x, foco, iconeAtivo, iconeInativo, animar, posX, iconeX, opacidadeRotulo]);
 
-  const estilo = useAnimatedStyle(() => ({ width: valor.value }));
+  const estiloCaixa = useAnimatedStyle(() => ({ transform: [{ translateX: posX.value }] }));
+  const estiloIcone = useAnimatedStyle(() => ({ transform: [{ translateX: iconeX.value }] }));
+  const estiloRotulo = useAnimatedStyle(() => ({
+    opacity: opacidadeRotulo.value,
+    transform: [{ translateX: iconeX.value + ICONE + ESPACO_ROTULO }],
+  }));
 
-  // Antes da primeira medida, divide igualmente para não piscar vazio
-  if (largura === null) return <View style={styles.abaPendente}>{children}</View>;
-  return <Animated.View style={[styles.abaCaixa, estilo]}>{children}</Animated.View>;
+  return (
+    <Animated.View pointerEvents="none" style={[styles.abaVisual, { width: medidas.ativa }, estiloCaixa]}>
+      <Animated.View style={[styles.iconeCaixa, estiloIcone]}>
+        <IconeAba icone={icone} ativo={foco} cor={foco ? cor.onInk : cor.textSecondary} />
+        {badge ? (
+          <View style={[styles.badge, { backgroundColor: sev.fill.critico }]}>
+            <T estilo="caption" cromo corHex={sev.onFill} numberOfLines={1} style={styles.badgeTexto}>
+              {badge}
+            </T>
+          </View>
+        ) : null}
+      </Animated.View>
+      <Animated.View style={[styles.rotuloCaixa, { maxWidth: maxRotulo }, estiloRotulo]}>
+        <T
+          estilo="headline"
+          cromo
+          numberOfLines={1}
+          onLayout={(e) => setLarguraRotulo(Math.ceil(e.nativeEvent.layout.width))}
+          style={[styles.rotulo, { color: cor.onInk }]}
+        >
+          {rotulo}
+        </T>
+      </Animated.View>
+    </Animated.View>
+  );
 }
 
 export function TabBar({ state, descriptors, navigateToTab, emitter, insets }: BottomTabBarProps) {
-  const { cor, sev, reduzirMovimento } = useTema();
+  const { cor, reduzirMovimento } = useTema();
   const { modoFoco, setRelatarAberto } = useUi();
   const descida = useSharedValue(0);
   const [larguraBarra, setLarguraBarra] = useState<number | null>(null);
   const jaMediu = useRef(false);
   const indicadorX = useSharedValue(0);
-  const indicadorLargura = useSharedValue(0);
 
   const quantidade = state.routes.length;
   const medidas = larguraBarra === null ? null : larguras(larguraBarra, quantidade);
   const animar = !reduzirMovimento;
 
+  // O indicador tem sempre a largura da ativa: só desliza (translateX), sem animar width
   useEffect(() => {
     if (!medidas) return;
-    // Todas as abas antes da ativa são inativas
-    const x = PADDING + state.index * (medidas.inativa + GAP);
-    if (animar && jaMediu.current) {
-      indicadorX.value = withTiming(x, { duration: 460, easing: CURVA_SHEET });
-      indicadorLargura.value = withTiming(medidas.ativa, { duration: 460, easing: CURVA_SHEET });
-    } else {
-      indicadorX.value = x;
-      indicadorLargura.value = medidas.ativa;
-    }
+    const x = posicaoAba(state.index, state.index, medidas);
+    indicadorX.value =
+      animar && jaMediu.current ? withTiming(x, { duration: 460, easing: CURVA_SHEET }) : x;
     jaMediu.current = true;
-  }, [state.index, medidas?.ativa, medidas?.inativa, animar, indicadorX, indicadorLargura]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [state.index, medidas?.ativa, medidas?.inativa, animar, indicadorX]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Modo foco: a barra desce 130 px (motion.focusMode) e libera o rodapé para a sheet
   useEffect(() => {
@@ -139,7 +200,6 @@ export function TabBar({ state, descriptors, navigateToTab, emitter, insets }: B
 
   const estiloIndicador = useAnimatedStyle(() => ({
     transform: [{ translateX: indicadorX.value }],
-    width: indicadorLargura.value,
   }));
 
   const medirBarra = (evento: LayoutChangeEvent) => {
@@ -155,6 +215,17 @@ export function TabBar({ state, descriptors, navigateToTab, emitter, insets }: B
     });
     if (!foco && !evento.defaultPrevented) navigateToTab(rota.key);
   };
+
+  const abas = state.routes.map((rota, indice) => {
+    const opcoes = descriptors[rota.key]?.options;
+    const aba = ABAS[rota.name] ?? {
+      rotulo: typeof opcoes?.title === 'string' ? opcoes.title : rota.name,
+      icone: 'home-angle-2' as const,
+    };
+    const badge = opcoes?.tabBarBadge;
+    const temBadge = badge !== undefined && badge !== null && badge !== '' && badge !== 0;
+    return { rota, indice, foco: indice === state.index, aba, badge: temBadge ? String(badge) : null };
+  });
 
   return (
     <Animated.View
@@ -176,74 +247,41 @@ export function TabBar({ state, descriptors, navigateToTab, emitter, insets }: B
             { backgroundColor: cor.nav, borderColor: cor.line, shadowColor: cor.scrim },
           ]}
         >
-          <Animated.View
-            pointerEvents="none"
-            style={[
-              styles.indicador,
-              { backgroundColor: cor.ink, opacity: medidas ? 1 : 0 },
-              estiloIndicador,
-            ]}
-          />
-          {state.routes.map((rota, indice) => {
-            const foco = indice === state.index;
-            const descriptor = descriptors[rota.key];
-            const opcoes = descriptor?.options;
-            const aba = ABAS[rota.name] ?? {
-              rotulo: typeof opcoes?.title === 'string' ? opcoes.title : rota.name,
-              icone: 'home-angle-2' as const,
-            };
-            const badge = opcoes?.tabBarBadge;
-            const temBadge = badge !== undefined && badge !== null && badge !== '' && badge !== 0;
-
-            return (
-              <AbaAnimada
-                key={rota.key}
-                largura={medidas ? (foco ? medidas.ativa : medidas.inativa) : null}
-                animar={animar}
-              >
-                <Pressable
-                  onPress={() => abrir(rota, foco)}
-                  onLongPress={() => emitter.emit({ type: 'tabLongPress', target: rota.key })}
-                  accessibilityRole="tab"
-                  accessibilityState={{ selected: foco }}
-                  accessibilityLabel={aba.rotulo}
-                  style={[styles.aba, foco && styles.abaAtiva]}
-                >
-                  <IconeAba
-                    icone={aba.icone}
-                    ativo={foco}
-                    cor={foco ? cor.onInk : cor.textSecondary}
-                  />
-                  {foco ? (
-                    <T
-                      estilo="headline"
-                      cromo
-                      numberOfLines={1}
-                      style={[styles.rotulo, { color: cor.onInk }]}
-                    >
-                      {aba.rotulo}
-                    </T>
-                  ) : null}
-                </Pressable>
-                {temBadge ? (
-                  <View
-                    pointerEvents="none"
-                    style={[styles.badge, { backgroundColor: sev.fill.critico }]}
-                  >
-                    <T
-                      estilo="caption"
-                      cromo
-                      corHex={sev.onFill}
-                      numberOfLines={1}
-                      style={styles.badgeTexto}
-                    >
-                      {String(badge)}
-                    </T>
-                  </View>
-                ) : null}
-              </AbaAnimada>
-            );
-          })}
+          {medidas ? (
+            <>
+              <Animated.View
+                pointerEvents="none"
+                style={[styles.indicador, { width: medidas.ativa, backgroundColor: cor.ink }, estiloIndicador]}
+              />
+              {abas.map(({ rota, foco, aba, badge }) => (
+                <AbaVisual
+                  key={`visual-${rota.key}`}
+                  x={posicaoAba(abas.findIndex((a) => a.rota.key === rota.key), state.index, medidas)}
+                  foco={foco}
+                  medidas={medidas}
+                  rotulo={aba.rotulo}
+                  icone={aba.icone}
+                  badge={badge}
+                  animar={animar}
+                />
+              ))}
+            </>
+          ) : null}
+          {/* Camada de toque: larguras mudam na hora (invisível), o visual acima é que anima */}
+          {abas.map(({ rota, foco, aba }) => (
+            <Pressable
+              key={rota.key}
+              onPress={() => abrir(rota, foco)}
+              onLongPress={() => emitter.emit({ type: 'tabLongPress', target: rota.key })}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: foco }}
+              accessibilityLabel={aba.rotulo}
+              style={[
+                styles.toque,
+                medidas ? { width: foco ? medidas.ativa : medidas.inativa } : styles.toquePendente,
+              ]}
+            />
+          ))}
         </View>
         <Fab onPress={() => setRelatarAberto(true)} rotulo="Relatar" />
       </View>
@@ -283,28 +321,36 @@ const styles = StyleSheet.create({
   indicador: {
     position: 'absolute',
     left: 0,
-    top: (tamanho.tabBar - ALTURA_ABA) / 2 - StyleSheet.hairlineWidth,
+    top: TOPO_ABA,
     height: ALTURA_ABA,
     borderRadius: raio.pill,
   },
-  abaCaixa: {
+  abaVisual: {
+    position: 'absolute',
+    left: 0,
+    top: TOPO_ABA,
     height: ALTURA_ABA,
   },
-  abaPendente: {
-    flex: 1,
-    height: ALTURA_ABA,
+  iconeCaixa: {
+    position: 'absolute',
+    left: 0,
+    top: (ALTURA_ABA - ICONE) / 2,
+    width: ICONE,
+    height: ICONE,
   },
-  aba: {
-    flex: 1,
-    borderRadius: raio.pill,
-    flexDirection: 'row',
-    alignItems: 'center',
+  rotuloCaixa: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
     justifyContent: 'center',
-    gap: 6,
-    overflow: 'hidden',
   },
-  abaAtiva: {
-    paddingHorizontal: 12,
+  toque: {
+    height: ALTURA_ABA,
+    borderRadius: raio.pill,
+  },
+  toquePendente: {
+    flex: 1,
   },
   icone: {
     width: tamanho.iconLg,

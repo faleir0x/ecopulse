@@ -31,7 +31,7 @@ jest.mock('@/state/ui', () => ({
 }));
 
 jest.mock('expo-router', () => ({
-  router: { back: jest.fn(), navigate: jest.fn() },
+  router: { back: jest.fn(), navigate: jest.fn(), canGoBack: () => true, replace: jest.fn() },
 }));
 
 const mockNavigate = router.navigate as jest.Mock;

@@ -45,3 +45,16 @@ class OcorrenciaDetalhe(OcorrenciaPayload):
 
     linha_do_tempo: list[datetime]  # recebimento de cada relato, do mais antigo ao mais novo
     nota: str | None
+
+
+class CelulaAmbiente(BaseModel):
+    """Uma célula geohash5 do mapa com a última leitura ambiental (ou null por grandeza)."""
+
+    geohash: str
+    lat_min: float
+    lon_min: float
+    lat_max: float
+    lon_max: float
+    temperatura: float | None
+    aqi: int | None
+    medido_em: datetime

@@ -75,3 +75,15 @@ export type LeituraAmbiente = {
   /** mm/h em 12 intervalos de 15 min (próximas 3 h) */
   chuva_3h: number[];
 };
+
+/** Espelha CelulaAmbiente (GET /v1/ambiente/camada): célula geohash5 com a última leitura. */
+export type CelulaAmbiente = {
+  geohash: string;
+  lat_min: number;
+  lon_min: number;
+  lat_max: number;
+  lon_max: number;
+  temperatura: number | null;
+  aqi: number | null;
+  medido_em: string;
+};

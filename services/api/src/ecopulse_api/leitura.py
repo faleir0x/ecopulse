@@ -15,7 +15,7 @@ import asyncpg
 from redis.asyncio.cluster import RedisCluster
 from redis.exceptions import RedisError
 
-from ecopulse_api.schemas import OcorrenciaDetalhe, SituacaoRelato
+from ecopulse_api.schemas import CelulaAmbiente, OcorrenciaDetalhe, SituacaoRelato
 from ecopulse_common import geohash
 from ecopulse_common.events import LeituraAmbiente, OcorrenciaPayload, Severidade, TipoRisco
 
@@ -325,3 +325,29 @@ async def ultima_leitura(
         except RedisError:
             log.warning("falha ao gravar o cache de ambiente; seguindo com o banco")
     return leitura
+
+
+async def leituras_das_celulas(
+    pool: asyncpg.Pool, redis: RedisCluster, celulas: list[str]
+) -> list[CelulaAmbiente]:
+    """Uma `CelulaAmbiente` por célula que já tem leitura; células sem leitura ficam de fora.
+    Cada consulta passa pelo cache-aside de `ultima_leitura`."""
+    resultado: list[CelulaAmbiente] = []
+    for celula in celulas:
+        leitura = await ultima_leitura(pool, redis, celula)
+        if leitura is None:
+            continue
+        lat_min, lon_min, lat_max, lon_max = geohash.decode_bbox(celula)
+        resultado.append(
+            CelulaAmbiente(
+                geohash=celula,
+                lat_min=lat_min,
+                lon_min=lon_min,
+                lat_max=lat_max,
+                lon_max=lon_max,
+                temperatura=leitura.temperatura,
+                aqi=leitura.aqi,
+                medido_em=leitura.medido_em,
+            )
+        )
+    return resultado

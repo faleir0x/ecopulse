@@ -1,6 +1,7 @@
 /** Cliente HTTP da API (docs/ARQUITETURA.md, seção API). */
 import { endpoints } from '@/config/endpoints';
 import type {
+  CelulaAmbiente,
   LeituraAmbiente,
   Ocorrencia,
   OcorrenciaDetalhe,
@@ -213,4 +214,14 @@ export async function lerAmbiente(lat: number, lon: number, op: Opcoes = {}): Pr
     if (erro instanceof ApiErro && erro.status === 404) return null;
     throw erro;
   }
+}
+
+/** GET /v1/ambiente/camada?bbox=. Células geohash5 do retângulo visível com última leitura. */
+export async function lerCamada(bbox: Bbox, op: Opcoes = {}): Promise<CelulaAmbiente[]> {
+  return pedir<CelulaAmbiente[]>(
+    `/v1/ambiente/camada?bbox=${bbox.lonMin},${bbox.latMin},${bbox.lonMax},${bbox.latMax}`,
+    { method: 'GET' },
+    op,
+    true,
+  );
 }

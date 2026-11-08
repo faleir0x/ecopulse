@@ -15,6 +15,7 @@ from redis.exceptions import RedisError
 
 from ecopulse_api import invalidacao, leitura, limite
 from ecopulse_api.schemas import (
+    CelulaAmbiente,
     ConfirmacaoIn,
     OcorrenciaDetalhe,
     RelatoAceito,
@@ -175,6 +176,32 @@ async def listar_ocorrencias(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"bbox inválido: {exc}") from exc
     ocorrencias = await leitura.ocorrencias_por_celulas(_pool(request), _redis(request), celulas)
     return leitura.filtrar(ocorrencias, min_lon, min_lat, max_lon, max_lat, tipo)
+
+
+@app.get("/v1/ambiente/camada")
+async def ler_camada(
+    request: Request,
+    bbox: Annotated[str, Query(description="min_lon,min_lat,max_lon,max_lat")],
+) -> list[CelulaAmbiente]:
+    """Última leitura de cada célula geohash5 do retângulo visível do mapa. Registra interesse
+    em todas as células (o environment coleta as que faltam em até 30 s) e devolve só as que
+    já têm leitura."""
+    try:
+        min_lon, min_lat, max_lon, max_lat = (float(valor) for valor in bbox.split(","))
+        celulas = leitura.celulas_do_bbox(min_lon, min_lat, max_lon, max_lat)
+    except ValueError as exc:
+        detalhe = "aproxime o mapa" if "acima do máximo" in str(exc) else f"bbox inválido: {exc}"
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detalhe) from exc
+
+    agora = time.time()
+    for celula in celulas:
+        try:
+            await registrar_interesse(_redis(request), celula, agora)
+        except RedisError:
+            log.warning("falha ao registrar interesse da camada")
+            break
+
+    return await leitura.leituras_das_celulas(_pool(request), _redis(request), celulas)
 
 
 @app.get("/v1/ambiente")

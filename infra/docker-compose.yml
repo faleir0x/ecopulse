@@ -2,6 +2,7 @@ name: ecopulse
 
 x-redis-node: &redis-node
   image: redis:7.4-alpine
+  restart: unless-stopped
   networks: [ecopulse]
   healthcheck:
     test: ["CMD-SHELL", "redis-cli -p $$REDIS_PORT ping"]
@@ -27,6 +28,7 @@ x-python-service: &python-service
 services:
   rabbitmq:
     image: rabbitmq:3.13-management
+    restart: unless-stopped
     hostname: rabbitmq
     networks: [ecopulse]
     ports:
@@ -46,6 +48,7 @@ services:
 
   postgres:
     image: postgis/postgis:16-3.4
+    restart: unless-stopped
     networks: [ecopulse]
     ports:
       - "${POSTGRES_PORT:-5432}:5432"

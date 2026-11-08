@@ -23,6 +23,12 @@ export type Ocorrencia = {
   expira_em: string;
 };
 
+export type OcorrenciaDetalhe = Ocorrencia & {
+  /** Recebimento de cada relato, do mais antigo ao mais novo (últimos 30). */
+  linha_do_tempo: string[];
+  nota: string | null;
+};
+
 export const ROTULO_TIPO: Record<TipoRisco, string> = {
   alagamento: 'Alagamento',
   calor: 'Calor',

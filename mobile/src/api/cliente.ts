@@ -1,6 +1,6 @@
 /** Cliente HTTP da API (docs/ARQUITETURA.md, seção API). */
 import { endpoints } from '@/config/endpoints';
-import type { Ocorrencia, Severidade, TipoRisco } from '@/domain/tipos';
+import type { Ocorrencia, OcorrenciaDetalhe, Severidade, TipoRisco } from '@/domain/tipos';
 import type { Bbox } from '@/lib/geohash';
 
 export const TIMEOUT_MS = 10_000;
@@ -141,8 +141,8 @@ export async function listarOcorrencias(bbox: Bbox, tipo: TipoRisco | null, op: 
   return pedir<Ocorrencia[]>(caminho, { method: 'GET' }, op, true);
 }
 
-export async function buscarOcorrencia(id: number, op: Opcoes = {}): Promise<Ocorrencia> {
-  return pedir<Ocorrencia>(`/v1/ocorrencias/${id}`, { method: 'GET' }, op, true);
+export async function buscarOcorrencia(id: number, op: Opcoes = {}): Promise<OcorrenciaDetalhe> {
+  return pedir<OcorrenciaDetalhe>(`/v1/ocorrencias/${id}`, { method: 'GET' }, op, true);
 }
 
 export async function enviarRelato(relato: RelatoEnvio, op: Opcoes = {}): Promise<void> {

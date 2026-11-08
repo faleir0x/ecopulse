@@ -12,7 +12,7 @@ from fastapi import FastAPI, HTTPException, Query, Request, status
 from redis.asyncio.cluster import RedisCluster
 
 from ecopulse_api import invalidacao, leitura, limite
-from ecopulse_api.schemas import ConfirmacaoIn, RelatoAceito, RelatoIn
+from ecopulse_api.schemas import ConfirmacaoIn, OcorrenciaDetalhe, RelatoAceito, RelatoIn
 from ecopulse_common import geohash, messaging
 from ecopulse_common.cache import create_cluster
 from ecopulse_common.config import Settings
@@ -147,8 +147,8 @@ async def listar_ocorrencias(
 
 
 @app.get("/v1/ocorrencias/{ocorrencia_id}")
-async def detalhar_ocorrencia(ocorrencia_id: int, request: Request) -> OcorrenciaPayload:
-    ocorrencia = await leitura.buscar_ocorrencia(_pool(request), ocorrencia_id)
+async def detalhar_ocorrencia(ocorrencia_id: int, request: Request) -> OcorrenciaDetalhe:
+    ocorrencia = await leitura.detalhar_ocorrencia(_pool(request), ocorrencia_id)
     if ocorrencia is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "ocorrência não encontrada")
     return ocorrencia

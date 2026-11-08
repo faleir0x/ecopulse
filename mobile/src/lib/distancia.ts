@@ -41,7 +41,8 @@ export function formatarDistancia(metros: number): string {
 
   const quilometros = valor / 1000;
   if (quilometros < 10) {
-    return `${quilometros.toFixed(1).replace('.', ',')} km`;
+    // "1 km" em vez de "1,0 km"
+    return `${quilometros.toFixed(1).replace(/\.0$/, '').replace('.', ',')} km`;
   }
   return `${Math.round(quilometros)} km`;
 }

@@ -14,6 +14,7 @@ import asyncpg
 from redis.asyncio.cluster import RedisCluster
 from redis.exceptions import RedisError
 
+from ecopulse_api.schemas import OcorrenciaDetalhe
 from ecopulse_common import geohash
 from ecopulse_common.events import OcorrenciaPayload, Severidade, TipoRisco
 
@@ -214,3 +215,37 @@ async def buscar_ocorrencia(pool: asyncpg.Pool, ocorrencia_id: int) -> Ocorrenci
             ocorrencia_id,
         )
     return _ocorrencia_da_linha(linha) if linha is not None else None
+
+
+LIMITE_LINHA_DO_TEMPO = 30
+
+
+async def detalhar_ocorrencia(pool: asyncpg.Pool, ocorrencia_id: int) -> OcorrenciaDetalhe | None:
+    """Ocorrência + linha do tempo (últimos LIMITE_LINHA_DO_TEMPO relatos) e nota mais recente."""
+    ocorrencia = await buscar_ocorrencia(pool, ocorrencia_id)
+    if ocorrencia is None:
+        return None
+    async with pool.acquire() as conn:
+        momentos = await conn.fetch(
+            """
+            SELECT recebido_em FROM (
+                SELECT recebido_em FROM relatos WHERE ocorrencia_id = $1
+                ORDER BY recebido_em DESC LIMIT $2
+            ) ultimos ORDER BY recebido_em
+            """,
+            ocorrencia_id,
+            LIMITE_LINHA_DO_TEMPO,
+        )
+        nota = await conn.fetchval(
+            """
+            SELECT descricao FROM relatos
+            WHERE ocorrencia_id = $1 AND descricao IS NOT NULL AND descricao <> ''
+            ORDER BY recebido_em DESC LIMIT 1
+            """,
+            ocorrencia_id,
+        )
+    return OcorrenciaDetalhe(
+        **ocorrencia.model_dump(),
+        linha_do_tempo=[linha["recebido_em"] for linha in momentos],
+        nota=nota,
+    )

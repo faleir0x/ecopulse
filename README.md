@@ -57,3 +57,13 @@ npx expo start               # leia o QR code com o Expo Go
 ```
 
 Verificações: `npm run check` (TypeScript, ESLint e Jest).
+
+## Dados de demonstração
+
+Cria ocorrências em volta da Av. Paulista pelo caminho real (API → fila → processor):
+
+```bash
+uv run python infra/demo/semear.py --api http://localhost:8000
+```
+
+No app, `EXPO_PUBLIC_LOCALIZACAO_SIMULADA=-23.5613,-46.6565` no `mobile/.env.local` fixa a posição lá. As ocorrências expiram sozinhas (alagamento em 3 h, calor em 6 h).

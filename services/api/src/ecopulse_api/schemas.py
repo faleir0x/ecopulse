@@ -4,7 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from ecopulse_common.events import Severidade, TipoRisco
+from ecopulse_common.events import OcorrenciaPayload, Severidade, TipoRisco
 
 
 class RelatoIn(BaseModel):
@@ -29,3 +29,10 @@ class ConfirmacaoIn(BaseModel):
     client_id: UUID
     device_id: UUID
     registrado_em: datetime
+
+
+class OcorrenciaDetalhe(OcorrenciaPayload):
+    """Ocorrência + o que só o detalhe mostra: quando foi confirmada e a nota mais recente."""
+
+    linha_do_tempo: list[datetime]  # recebimento de cada relato, do mais antigo ao mais novo
+    nota: str | None

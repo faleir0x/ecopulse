@@ -74,13 +74,14 @@ export function Button({
       accessibilityRole="button"
       accessibilityLabel={rotulo}
       accessibilityState={{ disabled: inativo, busy: carregando }}
+      // estilo = posição/tamanho no pai (ex.: flex: 1); a view interna é o visual
+      style={estilo}
     >
       <Animated.View
         style={[
           styles.base,
           { backgroundColor: fundo, borderRadius: raio.button },
           estiloEscala,
-          estilo,
         ]}
       >
         {carregando ? (

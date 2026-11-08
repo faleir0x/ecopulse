@@ -10,6 +10,7 @@ import Animated, {
 
 import { Icon } from '@/icons/Icon';
 import type { NomeIcone } from '@/icons';
+import { useUi } from '@/state/ui';
 import { useTema } from '@/theme/tema';
 import { espaco, movimento, raio, tamanho } from '@/theme/tokens';
 
@@ -104,6 +105,8 @@ function AbaAnimada({
 
 export function TabBar({ state, descriptors, navigateToTab, emitter, insets }: BottomTabBarProps) {
   const { cor, sev, reduzirMovimento } = useTema();
+  const { modoFoco } = useUi();
+  const descida = useSharedValue(0);
   const [larguraBarra, setLarguraBarra] = useState<number | null>(null);
   const jaMediu = useRef(false);
   const indicadorX = useSharedValue(0);
@@ -127,6 +130,13 @@ export function TabBar({ state, descriptors, navigateToTab, emitter, insets }: B
     jaMediu.current = true;
   }, [state.index, medidas?.ativa, medidas?.inativa, animar, indicadorX, indicadorLargura]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Modo foco: a barra desce 130 px (motion.focusMode) e libera o rodapé para a sheet
+  useEffect(() => {
+    const destino = modoFoco ? 130 : 0;
+    descida.value = reduzirMovimento ? destino : withTiming(destino, { duration: 500, easing: CURVA_SHEET });
+  }, [modoFoco, reduzirMovimento, descida]);
+  const estiloDescida = useAnimatedStyle(() => ({ transform: [{ translateY: descida.value }] }));
+
   const estiloIndicador = useAnimatedStyle(() => ({
     transform: [{ translateX: indicadorX.value }],
     width: indicadorLargura.value,
@@ -147,8 +157,10 @@ export function TabBar({ state, descriptors, navigateToTab, emitter, insets }: B
   };
 
   return (
-    <View
+    <Animated.View
+      pointerEvents={modoFoco ? 'none' : 'box-none'}
       style={[
+        estiloDescida,
         styles.wrap,
         {
           paddingHorizontal: espaco.gutter,
@@ -235,7 +247,7 @@ export function TabBar({ state, descriptors, navigateToTab, emitter, insets }: B
         </View>
         <Fab onPress={() => undefined} rotulo="Relatar" />
       </View>
-    </View>
+    </Animated.View>
   );
 }
 

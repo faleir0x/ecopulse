@@ -55,3 +55,18 @@ CREATE TABLE IF NOT EXISTS leituras_ambiente (
     gravado_em TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (geohash, medido_em)    -- idempotente: a mesma leitura entregue 2x é uma linha só
 );
+
+-- "Já passou": cada aparelho marca uma vez; a ocorrência encerra com min(3, confirmações) marcas.
+-- ADD COLUMN IF NOT EXISTS: o mesmo arquivo atualiza bancos criados antes desta etapa.
+ALTER TABLE ocorrencias ADD COLUMN IF NOT EXISTS resolucoes   INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE ocorrencias ADD COLUMN IF NOT EXISTS encerrada_em TIMESTAMPTZ;
+
+CREATE TABLE IF NOT EXISTS resolucoes (
+    id            BIGSERIAL PRIMARY KEY,
+    client_id     UUID NOT NULL UNIQUE,              -- idempotência do reenvio
+    device_id     UUID NOT NULL,
+    ocorrencia_id BIGINT NOT NULL REFERENCES ocorrencias (id),
+    registrado_em TIMESTAMPTZ NOT NULL,
+    recebido_em   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (ocorrencia_id, device_id)                -- um voto por aparelho
+);

@@ -47,3 +47,12 @@ describe('OfflinePill', () => {
     expect(getByText('Offline · 4 relatos na fila')).toBeTruthy();
   });
 });
+
+it('com rede e fila mostra "Enviando"', async () => {
+  const { getByText } = await render(
+    <TemaProvider inicial="escuro">
+      <OfflinePill pendentes={2} online />
+    </TemaProvider>,
+  );
+  expect(getByText('Enviando · 2 relatos na fila')).toBeTruthy();
+});

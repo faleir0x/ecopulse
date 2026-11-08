@@ -16,6 +16,7 @@ import { useTema } from '@/theme/tema';
 import { marcador, movimento } from '@/theme/tokens';
 
 import { ICONE_TIPO } from './iconesTipo';
+import { useRedesenhoInicial } from './useRedesenhoInicial';
 import type { Origem } from './ordenar';
 
 const CURVA_SPRING = Easing.bezier(
@@ -79,7 +80,8 @@ export function IncidentMarker({ ocorrencia, selecionado, atenuado, origem, onPr
 
   // No Android o marcador customizado só redesenha com tracksViewChanges; deixe ligado
   // só enquanto ele anima/muda (crítico pulsa, selecionado muda de escala).
-  const precisaRedesenho = selecionado || (critico && !reduzirMovimento);
+  const inicial = useRedesenhoInicial();
+  const precisaRedesenho = inicial || selecionado || (critico && !reduzirMovimento);
   // No Android o marcador vira bitmap do tamanho da view: a área precisa caber o pulso (2×)
   // e a escala de seleção (1,22×), senão o desenho é cortado num quadrado
   const comAnel = tamanho + 5;

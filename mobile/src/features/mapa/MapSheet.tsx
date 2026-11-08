@@ -174,7 +174,9 @@ export function MapSheet(props: MapSheetProps) {
         {carregando ? (
           <SkeletonLista />
         ) : erro ? (
-          <PageError compacta onTentar={onTentar} />
+          <View style={styles.erroLista}>
+            <PageError compacta onTentar={onTentar} />
+          </View>
         ) : lista.length === 0 ? (
           <EmptyRow
             titulo="Nenhum risco por perto"
@@ -235,6 +237,9 @@ export function MapSheet(props: MapSheetProps) {
 }
 
 const styles = StyleSheet.create({
+  erroLista: {
+    paddingHorizontal: espaco.gutter,
+  },
   alca: {
     paddingTop: 8,
     paddingBottom: 6,

@@ -16,6 +16,8 @@ import { T } from './T';
 
 export type OfflinePillProps = {
   pendentes: number;
+  /** Aparelho com rede mas relatos ainda na fila (servidor fora, tentando de novo). */
+  online?: boolean;
 };
 
 const DESLOCAMENTO = 110;
@@ -26,7 +28,7 @@ const CURVA_SAIDA = Easing.bezier(
   movimento.curvas.out[3],
 );
 
-export function OfflinePill({ pendentes }: OfflinePillProps) {
+export function OfflinePill({ pendentes, online = false }: OfflinePillProps) {
   const { cor, reduzirMovimento } = useTema();
   const entrada = useSharedValue(0);
 
@@ -44,11 +46,12 @@ export function OfflinePill({ pendentes }: OfflinePillProps) {
   }));
 
   const fila = `${pendentes} ${pendentes === 1 ? 'relato' : 'relatos'} na fila`;
+  const texto = online ? `Enviando · ${fila}` : `Offline · ${fila}`;
 
   return (
     <Animated.View
-      accessibilityRole="status"
-      accessibilityLabel={`Offline · ${fila}`}
+      accessibilityLiveRegion="polite"
+      accessibilityLabel={texto}
       style={[styles.pill, { backgroundColor: cor.textPrimary }, estilo]}
     >
       <Icon name="cloud-cross" tamanho={18} cor={cor.background} />
@@ -59,7 +62,7 @@ export function OfflinePill({ pendentes }: OfflinePillProps) {
         numberOfLines={1}
         style={styles.texto}
       >
-        {`Offline · ${fila}`}
+        {texto}
       </T>
     </Animated.View>
   );

@@ -105,7 +105,7 @@ function AbaAnimada({
 
 export function TabBar({ state, descriptors, navigateToTab, emitter, insets }: BottomTabBarProps) {
   const { cor, sev, reduzirMovimento } = useTema();
-  const { modoFoco } = useUi();
+  const { modoFoco, setRelatarAberto } = useUi();
   const descida = useSharedValue(0);
   const [larguraBarra, setLarguraBarra] = useState<number | null>(null);
   const jaMediu = useRef(false);
@@ -245,7 +245,7 @@ export function TabBar({ state, descriptors, navigateToTab, emitter, insets }: B
             );
           })}
         </View>
-        <Fab onPress={() => undefined} rotulo="Relatar" />
+        <Fab onPress={() => setRelatarAberto(true)} rotulo="Relatar" />
       </View>
     </Animated.View>
   );

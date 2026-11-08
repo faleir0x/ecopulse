@@ -5,13 +5,14 @@ import MapView, { Circle, PROVIDER_GOOGLE, type Region } from 'react-native-maps
 import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Pill, SegmentedFilter } from '@/components';
+import { OfflinePill, Pill, SegmentedFilter } from '@/components';
 import { ROTULO_TIPO, TIPOS_RISCO, type TipoRisco } from '@/domain/tipos';
 import { useLocalizacao } from '@/features/localizacao';
 import { estiloMapa } from '@/features/mapa/estiloMapa';
 import { useConfirmar, useDetalhe, useOcorrencias } from '@/features/ocorrencias';
 import { Icon } from '@/icons/Icon';
 import type { Bbox } from '@/lib/geohash';
+import { useRelatos } from '@/state/relatos';
 import { useUi } from '@/state/ui';
 import { useTema } from '@/theme/tema';
 import { espaco, sheet as tokensSheet, tamanho } from '@/theme/tokens';
@@ -28,6 +29,7 @@ import type { EstadoResposta } from './DetailFooter';
 import { ICONE_TIPO } from './iconesTipo';
 import { IncidentMarker } from './IncidentMarker';
 import { MapSheet, type RefSheet } from './MapSheet';
+import { PendingMarker } from './PendingMarker';
 import { ocorrenciasNoRaio } from './ordenar';
 import { useEndereco } from './useEndereco';
 import { UserMarker } from './UserMarker';
@@ -50,6 +52,7 @@ export function TelaMapa() {
   const { cor, sev, esquema } = useTema();
   const insets = useSafeAreaInsets();
   const { setModoFoco } = useUi();
+  const { estado, meus } = useRelatos();
 
   const [filtro, setFiltro] = useState<TipoRisco | null>(null);
   const [selecionadoId, setSelecionadoId] = useState<number | null>(null);
@@ -83,6 +86,8 @@ export function TelaMapa() {
     () => ocorrenciasNoRaio(ocorrencias.data ?? [], origem, RAIO_PADRAO_M),
     [ocorrencias.data, origem],
   );
+
+  const pendentes = useMemo(() => meus.filter((relato) => relato.status === 'pendente'), [meus]);
 
   const selecionada =
     selecionadoId === null
@@ -286,6 +291,10 @@ export function TelaMapa() {
             onPress={() => abrirDetalhe(ocorrencia.id)}
           />
         ))}
+
+        {pendentes.map((relato) => (
+          <PendingMarker key={relato.client_id} relato={relato} />
+        ))}
       </MapView>
 
       <MapSheet
@@ -315,6 +324,11 @@ export function TelaMapa() {
       />
 
       <View pointerEvents="box-none" style={[styles.topo, { top: insets.top + espaco.sm }]}>
+        {!estado.online || estado.pendentes > 0 ? (
+          <View style={styles.offline}>
+            <OfflinePill pendentes={estado.pendentes} online={estado.online} />
+          </View>
+        ) : null}
         <SegmentedFilter opcoes={opcoesFiltro} valor={filtro} onChange={setFiltro} />
         {!temLocalizacao ? (
           <View style={styles.semLocalizacao}>
@@ -349,6 +363,9 @@ const styles = StyleSheet.create({
     right: espaco.gutter,
     alignItems: 'center',
     zIndex: 20,
+  },
+  offline: {
+    marginBottom: espaco.sm,
   },
   semLocalizacao: {
     marginTop: espaco.sm,

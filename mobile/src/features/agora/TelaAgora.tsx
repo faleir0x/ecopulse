@@ -30,6 +30,7 @@ import { HourlyStrip } from './HourlyStrip';
 import { OcorrenciasTop } from './OcorrenciasTop';
 import { RainCard } from './RainCard';
 import { RiskSummary } from './RiskSummary';
+import { SemLocalizacao } from './SemLocalizacao';
 import { TempHero } from './TempHero';
 import { TempRange } from './TempRange';
 
@@ -86,13 +87,19 @@ export function TelaAgora() {
   const [rolou, setRolou] = useState(false);
   const localizacao = useLocalizacao();
   const temLocalizacao = localizacao.status === 'ok';
+  const semLocalizacao = localizacao.status === 'negada' || localizacao.status === 'indisponivel';
   const origem = temLocalizacao ? localizacao.coords : CENTRO_SAO_PAULO;
   const coordsAmbiente = temLocalizacao ? localizacao.coords : null;
+  const nomeEscolhido =
+    localizacao.status === 'ok' && localizacao.escolhida ? localizacao.nome : null;
 
   const ambiente = useAmbiente(coordsAmbiente);
   const endereco = useEndereco(coordsAmbiente, 'bairro');
   const cidade = useEndereco(coordsAmbiente, 'cidade');
-  const bbox = useMemo(() => bboxDoRaio(origem, raioM), [origem, raioM]);
+  const bbox = useMemo(
+    () => (semLocalizacao ? null : bboxDoRaio(origem, raioM)),
+    [origem, raioM, semLocalizacao],
+  );
   const ocorrencias = useOcorrencias(bbox, null);
 
   const leitura = ambiente.data ?? null;
@@ -122,6 +129,8 @@ export function TelaAgora() {
     setOcorrenciaFoco(id);
     router.navigate('/mapa');
   };
+
+  if (semLocalizacao) return <SemLocalizacao />;
 
   return (
     <View style={[styles.tela, { backgroundColor: cor.background }]}>
@@ -162,11 +171,13 @@ export function TelaAgora() {
             <>
               <Entrada indice={0}>
                 <Cabecalho
-                  endereco={endereco}
+                  endereco={nomeEscolhido ?? endereco}
                   cidade={cidade}
                   medidoEm={leitura?.medido_em ?? null}
                   online={estado.online}
                   erro={ambiente.isError}
+                  // Com GPS ele manda; trocar de bairro só faz sentido quando o local é escolhido
+                  onPress={nomeEscolhido ? () => router.navigate('/local') : undefined}
                 />
               </Entrada>
 

@@ -6,14 +6,23 @@ import { TelaAgora } from './TelaAgora';
 
 const mockRefetchAmbiente = jest.fn();
 const mockRefetchOcorrencias = jest.fn();
+const mockPedirPermissao = jest.fn();
+
+let mockEstadoLocalizacao: {
+  status: 'ok' | 'negada' | 'indisponivel';
+  coords?: { latitude: number; longitude: number };
+} = {
+  status: 'ok',
+  coords: { latitude: -23.55, longitude: -46.65 },
+};
 
 jest.mock('@/features/localizacao', () => ({
   useLocalizacao: () => ({
-    status: 'ok',
-    coords: { latitude: -23.55, longitude: -46.65 },
+    ...mockEstadoLocalizacao,
     precisaoM: 12,
     simulada: true,
   }),
+  pedirPermissao: (...args: unknown[]) => mockPedirPermissao(...args),
 }));
 
 jest.mock('@/features/agora/ambiente', () => ({
@@ -84,6 +93,13 @@ jest.mock('react-native-reanimated', () => {
 });
 
 describe('TelaAgora', () => {
+  beforeEach(() => {
+    mockEstadoLocalizacao = {
+      status: 'ok',
+      coords: { latitude: -23.55, longitude: -46.65 },
+    };
+  });
+
   it('mostra "Sem leitura agora" quando a API responde 404', async () => {
     const { getAllByText, getByText } = await render(
       <TemaProvider inicial="escuro">
@@ -95,5 +111,20 @@ describe('TelaAgora', () => {
     expect(getByText('Barra Funda')).toBeTruthy();
     expect(getByText('Perto de você')).toBeTruthy();
     expect(getByText('Nenhum risco por perto')).toBeTruthy();
+  });
+
+  it('sem localização mostra o convite e os dois botões', async () => {
+    mockEstadoLocalizacao = { status: 'negada' };
+
+    const { getByText } = await render(
+      <TemaProvider inicial="escuro">
+        <TelaAgora />
+      </TemaProvider>,
+    );
+
+    expect(getByText('Sem localização')).toBeTruthy();
+    expect(getByText('Onde você está?')).toBeTruthy();
+    expect(getByText('Usar localização')).toBeTruthy();
+    expect(getByText('Escolher bairro')).toBeTruthy();
   });
 });

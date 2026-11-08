@@ -1,6 +1,62 @@
-import { lerSimulada, lerTrajeto, posicaoNaLinha, posicaoNoTrajeto } from './localizacao';
+import { act, renderHook, waitFor } from '@testing-library/react-native';
 
-jest.mock('expo-location', () => ({}));
+import {
+  escolherLocal,
+  lerSimulada,
+  lerTrajeto,
+  pedirPermissao,
+  posicaoNaLinha,
+  posicaoNoTrajeto,
+  useLocalEscolhido,
+  useLocalizacao,
+} from './localizacao';
+
+const mockRequest = jest.fn();
+const mockWatch = jest.fn();
+const mockOpenSettings = jest.fn();
+
+jest.mock('expo-location', () => ({
+  Accuracy: { Balanced: 3 },
+  requestForegroundPermissionsAsync: (...args: unknown[]) => mockRequest(...args),
+  watchPositionAsync: (...args: unknown[]) => mockWatch(...args),
+}));
+
+jest.mock('expo-linking', () => ({
+  openSettings: (...args: unknown[]) => mockOpenSettings(...args),
+}));
+
+jest.mock('expo-sqlite/kv-store', () => ({
+  __esModule: true,
+  default: { getItemSync: jest.fn(() => null), setItemSync: jest.fn(), removeItemSync: jest.fn() },
+}));
+
+const Storage = (
+  jest.requireMock('expo-sqlite/kv-store') as {
+    default: {
+      getItemSync: jest.Mock;
+      setItemSync: jest.Mock;
+      removeItemSync: jest.Mock;
+    };
+  }
+).default;
+
+type Posicao = { coords: { latitude: number; longitude: number; accuracy: number | null } };
+let emitirPosicao: ((posicao: Posicao) => void) | null = null;
+let removerAssinatura: jest.Mock;
+
+beforeEach(() => {
+  escolherLocal(null);
+  jest.clearAllMocks();
+  emitirPosicao = null;
+  removerAssinatura = jest.fn();
+  mockRequest.mockResolvedValue({ status: 'granted', canAskAgain: true });
+  mockWatch.mockImplementation(
+    async (_opcoes: unknown, ouvinte: (posicao: Posicao) => void) => {
+      emitirPosicao = ouvinte;
+      return { remove: removerAssinatura };
+    },
+  );
+});
 
 describe('localização simulada', () => {
   it('lê um ponto e um trajeto, ignorando partes inválidas', () => {
@@ -36,5 +92,116 @@ describe('posicaoNaLinha', () => {
 
   it('trata metros negativos como o início', () => {
     expect(posicaoNaLinha(linha, -5)).toEqual(linha[0]);
+  });
+});
+
+describe('local escolhido', () => {
+  const pinheiros = { latitude: -23.5, longitude: -46.6, nome: 'Pinheiros' };
+
+  it('persiste e limpa o local escolhido', () => {
+    escolherLocal(pinheiros);
+
+    expect(Storage.setItemSync).toHaveBeenCalledWith(
+      'localizacao.escolhido.v1',
+      JSON.stringify(pinheiros),
+    );
+
+    escolherLocal(null);
+
+    expect(Storage.removeItemSync).toHaveBeenCalledWith('localizacao.escolhido.v1');
+  });
+
+  it('useLocalEscolhido acompanha a escolha', async () => {
+    const { result } = await renderHook(() => useLocalEscolhido());
+    expect(result.current).toBeNull();
+
+    await act(async () => {
+      escolherLocal(pinheiros);
+    });
+
+    await waitFor(() => expect(result.current).toEqual(pinheiros));
+  });
+
+  it('usa o GPS e ignora o escolhido quando a permissão é concedida', async () => {
+    escolherLocal(pinheiros);
+
+    const { result } = await renderHook(() => useLocalizacao());
+    await waitFor(() => expect(emitirPosicao).not.toBeNull());
+
+    await act(async () => {
+      emitirPosicao!({ coords: { latitude: -23.55, longitude: -46.65, accuracy: 8 } });
+    });
+
+    await waitFor(() => expect(result.current.status).toBe('ok'));
+    expect(result.current).toMatchObject({
+      status: 'ok',
+      coords: { latitude: -23.55, longitude: -46.65 },
+      simulada: false,
+    });
+    if (result.current.status === 'ok') expect(result.current.escolhida).toBeFalsy();
+  });
+
+  it('cai para o escolhido quando a permissão é negada', async () => {
+    mockRequest.mockResolvedValue({ status: 'denied', canAskAgain: true });
+    escolherLocal(pinheiros);
+
+    const { result } = await renderHook(() => useLocalizacao());
+
+    await waitFor(() => expect(result.current.status).toBe('ok'));
+    expect(result.current).toMatchObject({
+      status: 'ok',
+      coords: { latitude: -23.5, longitude: -46.6 },
+      precisaoM: null,
+      simulada: false,
+      escolhida: true,
+      nome: 'Pinheiros',
+    });
+    expect(mockWatch).not.toHaveBeenCalled();
+  });
+
+  it('cai para o escolhido quando o GPS está indisponível', async () => {
+    mockWatch.mockRejectedValue(new Error('sem GPS'));
+    escolherLocal(pinheiros);
+
+    const { result } = await renderHook(() => useLocalizacao());
+
+    await waitFor(() => expect(result.current.status).toBe('ok'));
+    expect(result.current).toMatchObject({ status: 'ok', escolhida: true, nome: 'Pinheiros' });
+  });
+
+  it('fica negada sem permissão e sem escolhido', async () => {
+    mockRequest.mockResolvedValue({ status: 'denied', canAskAgain: true });
+
+    const { result } = await renderHook(() => useLocalizacao());
+
+    await waitFor(() => expect(result.current.status).toBe('negada'));
+  });
+
+  it('depois de conceder, pedirPermissao faz o hook observar o GPS', async () => {
+    mockRequest.mockResolvedValue({ status: 'denied', canAskAgain: true });
+
+    const { result } = await renderHook(() => useLocalizacao());
+    await waitFor(() => expect(result.current.status).toBe('negada'));
+
+    mockRequest.mockResolvedValue({ status: 'granted', canAskAgain: true });
+    await act(async () => {
+      await pedirPermissao();
+    });
+
+    await waitFor(() => expect(emitirPosicao).not.toBeNull());
+    await act(async () => {
+      emitirPosicao!({ coords: { latitude: -23.55, longitude: -46.65, accuracy: 8 } });
+    });
+
+    await waitFor(() => expect(result.current.status).toBe('ok'));
+    if (result.current.status === 'ok') expect(result.current.escolhida).toBeFalsy();
+  });
+
+  it('abre os ajustes quando não pode pedir a permissão de novo', async () => {
+    mockRequest.mockResolvedValue({ status: 'denied', canAskAgain: false });
+
+    await pedirPermissao();
+
+    expect(mockOpenSettings).toHaveBeenCalledTimes(1);
   });
 });

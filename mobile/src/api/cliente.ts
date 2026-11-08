@@ -264,3 +264,20 @@ export async function calcularRota(
     true,
   );
 }
+
+export type LocalEncontrado = { nome: string; detalhe: string | null; latitude: number; longitude: number };
+
+/** GET /v1/locais?q=: bairros/endereços no Brasil (geocodificação no servidor), perto de `perto`. */
+export async function buscarLocais(
+  texto: string,
+  perto: Ponto | null,
+  op: Opcoes = {},
+): Promise<LocalEncontrado[]> {
+  const referencia = perto ? `&perto=${perto.latitude.toFixed(4)},${perto.longitude.toFixed(4)}` : '';
+  return pedir<LocalEncontrado[]>(
+    `/v1/locais?q=${encodeURIComponent(texto)}${referencia}`,
+    { method: 'GET' },
+    op,
+    true,
+  );
+}

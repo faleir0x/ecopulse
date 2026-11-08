@@ -1,10 +1,20 @@
 import * as Location from 'expo-location';
-import { useEffect, useState } from 'react';
+import Storage from 'expo-sqlite/kv-store';
+import * as Linking from 'expo-linking';
+import { useEffect, useMemo, useState } from 'react';
 
 export type Coordenada = { latitude: number; longitude: number };
+export type LocalEscolhido = { latitude: number; longitude: number; nome: string };
 export type EstadoLocalizacao =
   | { status: 'carregando' }
-  | { status: 'ok'; coords: Coordenada; precisaoM: number | null; simulada: boolean }
+  | {
+      status: 'ok';
+      coords: Coordenada;
+      precisaoM: number | null;
+      simulada: boolean;
+      escolhida?: boolean;
+      nome?: string;
+    }
   | { status: 'negada' }
   | { status: 'indisponivel' };
 
@@ -24,6 +34,99 @@ export function lerTrajeto(valor: string | undefined): Coordenada[] {
     .split(';')
     .map((parte) => lerSimulada(parte))
     .filter((c): c is Coordenada => c !== null);
+}
+
+// Local escolhido à mão (bairro/endereço), usado quando o GPS não está disponível.
+// Fica no módulo para Agora, Mapa, alertas e rota lerem o mesmo ponto.
+const CHAVE_ESCOLHIDO = 'localizacao.escolhido.v1';
+const ouvintesEscolhido = new Set<() => void>();
+let escolhido: LocalEscolhido | null = null;
+
+function lerEscolhido(): LocalEscolhido | null {
+  try {
+    const bruto = Storage.getItemSync(CHAVE_ESCOLHIDO);
+    if (!bruto) return null;
+    const dado = JSON.parse(bruto) as Partial<LocalEscolhido>;
+    if (
+      typeof dado.latitude !== 'number' ||
+      !Number.isFinite(dado.latitude) ||
+      typeof dado.longitude !== 'number' ||
+      !Number.isFinite(dado.longitude) ||
+      typeof dado.nome !== 'string'
+    ) {
+      return null;
+    }
+    return { latitude: dado.latitude, longitude: dado.longitude, nome: dado.nome };
+  } catch {
+    return null;
+  }
+}
+
+escolhido = lerEscolhido();
+
+/** Escolhe um ponto (bairro/endereço) ou volta ao GPS (null). Persiste e avisa os ouvintes. */
+export function escolherLocal(local: LocalEscolhido | null): void {
+  escolhido = local;
+  try {
+    if (local) Storage.setItemSync(CHAVE_ESCOLHIDO, JSON.stringify(local));
+    else Storage.removeItemSync(CHAVE_ESCOLHIDO);
+  } catch {
+    // Sem persistência o escolhido vale só nesta sessão
+  }
+  ouvintesEscolhido.forEach((ouvinte) => ouvinte());
+}
+
+/** Local escolhido atual; reage a `escolherLocal` sem reiniciar o app. */
+export function useLocalEscolhido(): LocalEscolhido | null {
+  const [, atualizar] = useState(0);
+
+  useEffect(() => {
+    const ouvinte = () => atualizar((valor) => valor + 1);
+    ouvintesEscolhido.add(ouvinte);
+    return () => {
+      ouvintesEscolhido.delete(ouvinte);
+    };
+  }, []);
+
+  return escolhido;
+}
+
+// Última posição real (GPS ou simulada) para orientar a busca de bairro quando o GPS sumir
+const CHAVE_ULTIMA = 'localizacao.ultima.v1';
+
+/** Última posição conhecida do aparelho (persistida), ou null. */
+export function ultimaPosicaoConhecida(): Coordenada | null {
+  try {
+    const bruto = Storage.getItemSync(CHAVE_ULTIMA);
+    return bruto ? lerSimulada(bruto) : null;
+  } catch {
+    return null;
+  }
+}
+
+function guardarUltima(coords: Coordenada): void {
+  try {
+    Storage.setItemSync(CHAVE_ULTIMA, `${coords.latitude.toFixed(4)},${coords.longitude.toFixed(4)}`);
+  } catch {
+    // Sem persistência a busca só perde a referência
+  }
+}
+
+const ouvintesPermissao = new Set<() => void>();
+
+/** Pede a permissão; sem chance de perguntar de novo, abre os Ajustes do aparelho. */
+export async function pedirPermissao(): Promise<boolean> {
+  try {
+    const { status, canAskAgain } = await Location.requestForegroundPermissionsAsync();
+    if (status !== 'granted' && !canAskAgain) {
+      await Linking.openSettings();
+    }
+    ouvintesPermissao.forEach((ouvinte) => ouvinte());
+    return status === 'granted';
+  } catch {
+    ouvintesPermissao.forEach((ouvinte) => ouvinte());
+    return false;
+  }
 }
 
 function trechosDe(pontos: Coordenada[]) {
@@ -99,9 +202,21 @@ function posicaoSimulada(inicioTrajeto: number): Coordenada | null {
 
 /** Posição atual em primeiro plano (permissão "enquanto usa o app"), atualizada a cada ~25 m. */
 export function useLocalizacao(): EstadoLocalizacao {
+  const escolhidoAtual = useLocalEscolhido();
   const [estado, setEstado] = useState<EstadoLocalizacao>(
     SIMULADA ? { status: 'ok', coords: SIMULADA, precisaoM: 12, simulada: true } : { status: 'carregando' },
   );
+  const [versaoPermissao, setVersaoPermissao] = useState(0);
+
+  // `pedirPermissao` avisa aqui: o efeito do GPS roda de novo e passa a observar a posição
+  // sem precisar reiniciar o app
+  useEffect(() => {
+    const ouvinte = () => setVersaoPermissao((valor) => valor + 1);
+    ouvintesPermissao.add(ouvinte);
+    return () => {
+      ouvintesPermissao.delete(ouvinte);
+    };
+  }, []);
 
   useEffect(() => {
     if (SIMULADA) {
@@ -128,6 +243,16 @@ export function useLocalizacao(): EstadoLocalizacao {
         ouvintes.delete(atualizar);
       };
     }
+  }, []);
+
+  // Guarda a posição real (não o bairro escolhido) para a busca de local usar depois
+  const ultimaReal = estado.status === 'ok' ? estado.coords : null;
+  useEffect(() => {
+    if (ultimaReal) guardarUltima(ultimaReal);
+  }, [ultimaReal]);
+
+  useEffect(() => {
+    if (SIMULADA) return;
     let assinatura: Location.LocationSubscription | null = null;
     let ativo = true;
 
@@ -158,7 +283,27 @@ export function useLocalizacao(): EstadoLocalizacao {
       ativo = false;
       assinatura?.remove();
     };
-  }, []);
+  }, [versaoPermissao]);
 
+  // GPS ok manda; o escolhido só cobre permissão negada ou GPS indisponível
+  // Mesmo objeto enquanto o escolhido não muda: quem depende de coords não recalcula à toa
+  const estadoEscolhido = useMemo<EstadoLocalizacao | null>(
+    () =>
+      escolhidoAtual
+        ? {
+            status: 'ok',
+            coords: { latitude: escolhidoAtual.latitude, longitude: escolhidoAtual.longitude },
+            precisaoM: null,
+            simulada: false,
+            escolhida: true,
+            nome: escolhidoAtual.nome,
+          }
+        : null,
+    [escolhidoAtual],
+  );
+  if (estado.status === 'ok') return estado;
+  if (estadoEscolhido && (estado.status === 'negada' || estado.status === 'indisponivel')) {
+    return estadoEscolhido;
+  }
   return estado;
 }

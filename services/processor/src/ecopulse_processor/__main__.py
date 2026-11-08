@@ -23,7 +23,7 @@ from ecopulse_common.consumer import consume
 from ecopulse_common.db import create_pool
 from ecopulse_common.events import Envelope
 from ecopulse_common.logs import configure_logging
-from ecopulse_processor import regras, relay
+from ecopulse_processor import ambiente, regras, relay
 from ecopulse_processor.servico import expirar_ocorrencias, processar_relato
 
 log = logging.getLogger(__name__)
@@ -57,6 +57,10 @@ async def main() -> None:
         messaging.EVENTS_EXCHANGE, aio_pika.ExchangeType.TOPIC, durable=True
     )
 
+    canal_ambiente = await connection.channel(publisher_confirms=True)
+    await canal_ambiente.set_qos(prefetch_count=20)
+    await ambiente.iniciar(canal_ambiente, topology.events, pool)
+
     async def _handler(envelope: Envelope) -> None:
         await processar_relato(pool, envelope)
 
@@ -82,6 +86,7 @@ async def main() -> None:
     with contextlib.suppress(asyncio.CancelledError):
         await tarefa_relay
 
+    await canal_ambiente.close()
     await canal_relay.close()
     await channel.close()
     await connection.close()

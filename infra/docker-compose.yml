@@ -134,6 +134,20 @@ services:
       args: { SERVICE: processor }
     command: ["python", "-m", "ecopulse_processor"]
 
+  environment:
+    <<: *python-service
+    build:
+      context: ..
+      dockerfile: infra/docker/python.Dockerfile
+      args: { SERVICE: environment }
+    command: ["python", "-m", "ecopulse_environment"]
+    environment:
+      ECOPULSE_RABBIT_URL: amqp://ecopulse:ecopulse@rabbitmq:5672/
+      ECOPULSE_DATABASE_URL: postgresql://ecopulse:ecopulse@postgres:5432/ecopulse
+      ECOPULSE_REDIS_NODES: redis-1:7001,redis-2:7002,redis-3:7003
+      # "open-meteo" (real), "simulador" ou "simulador-calor" (demo)
+      ECOPULSE_AMBIENTE_FONTE: ${AMBIENTE_FONTE:-open-meteo}
+
   realtime:
     <<: *python-service
     build:

@@ -15,3 +15,6 @@ class Settings(BaseSettings):
     # Nº de filas-partição do consistent hash exchange
     partitions: int = 3
     log_level: str = "INFO"
+    # environment: "open-meteo" (real) ou "simulador" (demo offline / onda de calor)
+    ambiente_fonte: str = "open-meteo"
+    ambiente_intervalo_s: int = 600

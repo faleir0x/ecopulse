@@ -1,0 +1,16 @@
+[project]
+name = "ecopulse-environment"
+version = "0.1.0"
+description = "Coleta clima e qualidade do ar (Open-Meteo ou simulador) e publica leitura.ambiente"
+requires-python = ">=3.13"
+dependencies = ["ecopulse-common", "httpx>=0.28"]
+
+[tool.uv.sources]
+ecopulse-common = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ecopulse_environment"]

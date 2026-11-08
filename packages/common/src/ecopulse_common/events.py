@@ -73,3 +73,29 @@ class OcorrenciaPayload(BaseModel):
     criada_em: datetime
     atualizada_em: datetime
     expira_em: datetime
+
+
+class HoraPrevista(BaseModel):
+    hora: datetime
+    temperatura: float
+    codigo_tempo: int  # WMO weather code
+    chuva_mm: float
+
+
+class LeituraAmbiente(BaseModel):
+    """Payload de `leitura.ambiente`: condições atuais e previsão curta de uma célula geohash5."""
+
+    geohash: str = Field(min_length=5, max_length=5)
+    latitude: float
+    longitude: float
+    medido_em: datetime
+    fonte: str  # "open-meteo" | "simulador"
+    temperatura: float | None
+    sensacao: float | None
+    codigo_tempo: int | None
+    minima_dia: float | None
+    maxima_dia: float | None
+    aqi: int | None  # US AQI
+    chuva_mm_h: float | None  # intensidade atual
+    proximas_horas: list[HoraPrevista]  # próximas 12 h
+    chuva_3h: list[float]  # mm/h em 12 intervalos de 15 min

@@ -1,4 +1,5 @@
 import logging
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -10,16 +11,19 @@ from aio_pika.abc import AbstractRobustConnection
 from aio_pika.exceptions import AMQPError
 from fastapi import FastAPI, HTTPException, Query, Request, status
 from redis.asyncio.cluster import RedisCluster
+from redis.exceptions import RedisError
 
 from ecopulse_api import invalidacao, leitura, limite
 from ecopulse_api.schemas import ConfirmacaoIn, OcorrenciaDetalhe, RelatoAceito, RelatoIn
 from ecopulse_common import geohash, messaging
+from ecopulse_common.ambiente import registrar_interesse
 from ecopulse_common.cache import create_cluster
 from ecopulse_common.config import Settings
 from ecopulse_common.db import create_pool
 from ecopulse_common.events import (
     Envelope,
     EventType,
+    LeituraAmbiente,
     OcorrenciaPayload,
     RelatoRecebido,
     StatusOcorrencia,
@@ -144,6 +148,25 @@ async def listar_ocorrencias(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"bbox inválido: {exc}") from exc
     ocorrencias = await leitura.ocorrencias_por_celulas(_pool(request), _redis(request), celulas)
     return leitura.filtrar(ocorrencias, min_lon, min_lat, max_lon, max_lat, tipo)
+
+
+@app.get("/v1/ambiente")
+async def ler_ambiente(
+    request: Request,
+    lat: Annotated[float, Query(ge=-90, le=90)],
+    lon: Annotated[float, Query(ge=-180, le=180)],
+) -> LeituraAmbiente:
+    """Última leitura ambiental da célula geohash5 do ponto (cache-aside no Redis)."""
+    geohash5 = geohash.encode(lat, lon, geohash.PARTITION_PRECISION)
+    try:
+        await registrar_interesse(_redis(request), geohash5, time.time())
+    except RedisError:
+        log.warning("falha ao registrar interesse de célula", extra={"geohash": geohash5})
+
+    resultado = await leitura.ultima_leitura(_pool(request), _redis(request), geohash5)
+    if resultado is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "sem leitura")
+    return resultado
 
 
 @app.get("/v1/ocorrencias/{ocorrencia_id}")

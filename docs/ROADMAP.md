@@ -46,7 +46,13 @@ Tipos de risco: os 4 da proposta (alagamento, calor, qualidade do ar, rota obstr
 - [ ] **4.6** Aba Agora (temperatura, AQI, chuva, riscos por perto), com dados de exemplo até a 5.1
 
 ## Fase 5: Dados ambientais
-- [ ] **5.1** Serviço `environment`: Open-Meteo (AQI/temperatura) + simulador para a apresentação
+- [x] **5.1** Serviço `environment`: Open-Meteo (AQI/temperatura) + simulador para a apresentação
+
+## Pendências (depois da 4.6)
+- [ ] `GET /v1/relatos/{client_id}` (ocorrência e confirmações do próprio relato) e "Meus relatos" abrindo o detalhe no Mapa
+- [ ] Rate limit também por IP (além do por aparelho)
+- [ ] Ajustes finos de design listados na 4.5: miniatura 48 px no componente compartilhado, contador "N novos" em Alertas, ícone `bell-off` no vazio
+- [ ] Avaliar com o professor se a identificação anônima por aparelho atende (sem login)
 
 ## Fase 6: Entrega
 - [ ] **6.1** CD: publicação das imagens no GHCR

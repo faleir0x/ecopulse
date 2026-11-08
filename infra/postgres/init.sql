@@ -46,3 +46,12 @@ CREATE TABLE IF NOT EXISTS outbox (
     publicado_em TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS idx_outbox_pendentes ON outbox (id) WHERE publicado_em IS NULL;
+
+-- Leituras de clima e qualidade do ar por célula geohash5 (serviço environment)
+CREATE TABLE IF NOT EXISTS leituras_ambiente (
+    geohash    TEXT NOT NULL,
+    medido_em  TIMESTAMPTZ NOT NULL,
+    leitura    JSONB NOT NULL,          -- LeituraAmbiente completa
+    gravado_em TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (geohash, medido_em)    -- idempotente: a mesma leitura entregue 2x é uma linha só
+);

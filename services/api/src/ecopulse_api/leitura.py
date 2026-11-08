@@ -16,7 +16,7 @@ from redis.exceptions import RedisError
 
 from ecopulse_api.schemas import OcorrenciaDetalhe
 from ecopulse_common import geohash
-from ecopulse_common.events import OcorrenciaPayload, Severidade, TipoRisco
+from ecopulse_common.events import LeituraAmbiente, OcorrenciaPayload, Severidade, TipoRisco
 
 log = logging.getLogger(__name__)
 
@@ -249,3 +249,52 @@ async def detalhar_ocorrencia(pool: asyncpg.Pool, ocorrencia_id: int) -> Ocorren
         linha_do_tempo=[linha["recebido_em"] for linha in momentos],
         nota=nota,
     )
+
+
+AMBIENTE_TTL_S = 60
+
+
+def chave_ambiente(geohash5: str) -> str:
+    return f"amb:{{{geohash5}}}"
+
+
+async def ultima_leitura(
+    pool: asyncpg.Pool, redis: RedisCluster, geohash5: str
+) -> LeituraAmbiente | None:
+    """Cache-aside (TTL AMBIENTE_TTL_S) da leitura mais recente da célula; RedisError → só banco.
+    SELECT leitura FROM leituras_ambiente WHERE geohash=$1 ORDER BY medido_em DESC LIMIT 1."""
+    chave = chave_ambiente(geohash5)
+    cache: str | None = None
+    cache_disponivel = True
+    try:
+        cache_bruto = await redis.get(chave)
+    except RedisError:
+        cache_disponivel = False
+        log.warning("cache de ambiente indisponível; lendo do banco")
+    else:
+        if cache_bruto is not None:
+            cache = cache_bruto.decode() if isinstance(cache_bruto, bytes) else cache_bruto
+
+    if cache is not None:
+        return LeituraAmbiente.model_validate_json(cache)
+
+    async with pool.acquire() as conn:
+        valor: str | None = await conn.fetchval(
+            """
+            SELECT leitura FROM leituras_ambiente
+            WHERE geohash = $1
+            ORDER BY medido_em DESC
+            LIMIT 1
+            """,
+            geohash5,
+        )
+    if valor is None:
+        return None
+
+    leitura = LeituraAmbiente.model_validate_json(valor)
+    if cache_disponivel:
+        try:
+            await redis.set(chave, leitura.model_dump_json(), ex=AMBIENTE_TTL_S)
+        except RedisError:
+            log.warning("falha ao gravar o cache de ambiente; seguindo com o banco")
+    return leitura

@@ -47,7 +47,12 @@ jest.mock('react-native-reanimated', () => {
     default: { View },
     useReducedMotion: () => false,
     useAnimatedStyle: (estilo: () => unknown) => estilo(),
-    useSharedValue: (inicial: unknown) => ({ value: inicial }),
+    useSharedValue: (inicial: unknown) => ({
+      value: inicial,
+      set(novo: unknown) {
+        this.value = novo;
+      },
+    }),
     withTiming: identidade,
     withSpring: identidade,
     withDelay: (_atraso: number, valor: unknown) => valor,
@@ -157,19 +162,21 @@ describe('TelaAlertas por dia', () => {
 
   it('dia sem alerta mostra o vazio', async () => {
     mockAlertas = [em(1, 0)];
-    const { getByText } = await montar();
+    const { getByText, getByLabelText } = await montar();
 
+    await fireEvent.press(getByLabelText('Dia: Hoje'));
     await fireEvent.press(getByText('Ontem'));
     expect(getByText('Nenhum alerta neste dia')).toBeTruthy();
   });
 
-  it('mostra um dia por vez e troca pelo chip', async () => {
+  it('mostra um dia por vez e troca pelo menu de data', async () => {
     mockAlertas = [em(1, 0), em(2, 1, true), em(3, 1, true)];
-    const { getByText, getAllByText } = await montar();
+    const { getByText, getAllByText, getByLabelText } = await montar();
 
     expect(getByText('1 novo')).toBeTruthy();
     expect(getAllByText('Alagamento')).toHaveLength(1);
 
+    await fireEvent.press(getByLabelText('Dia: Hoje'));
     await fireEvent.press(getByText('Ontem'));
     expect(getAllByText('Alagamento')).toHaveLength(2);
   });

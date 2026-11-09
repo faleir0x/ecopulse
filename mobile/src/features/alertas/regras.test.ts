@@ -40,19 +40,51 @@ describe('avaliar', () => {
   });
 
   it('ignora abaixo do limiar, fora do raio, tipo desligado e expirada', () => {
-    expect(avaliar({ type: 'ocorrencia.criada', ocorrencia: ocorrencia({ severidade: 'baixo' }) }, ctx(), AGORA)).toBeNull();
-    expect(avaliar({ type: 'ocorrencia.criada', ocorrencia: ocorrencia({ latitude: -23.58 }) }, ctx(), AGORA)).toBeNull();
-    expect(avaliar({ type: 'ocorrencia.criada', ocorrencia: ocorrencia() }, ctx({ tiposAtivos: ['calor'] }), AGORA)).toBeNull();
-    expect(avaliar({ type: 'ocorrencia.expirada', ocorrencia: ocorrencia() }, ctx(), AGORA)).toBeNull();
+    expect(
+      avaliar(
+        { type: 'ocorrencia.criada', ocorrencia: ocorrencia({ severidade: 'baixo' }) },
+        ctx(),
+        AGORA,
+      ),
+    ).toBeNull();
+    expect(
+      avaliar(
+        { type: 'ocorrencia.criada', ocorrencia: ocorrencia({ latitude: -23.58 }) },
+        ctx(),
+        AGORA,
+      ),
+    ).toBeNull();
+    expect(
+      avaliar(
+        { type: 'ocorrencia.criada', ocorrencia: ocorrencia() },
+        ctx({ tiposAtivos: ['calor'] }),
+        AGORA,
+      ),
+    ).toBeNull();
+    expect(
+      avaliar({ type: 'ocorrencia.expirada', ocorrencia: ocorrencia() }, ctx(), AGORA),
+    ).toBeNull();
   });
 
   it('sem posição não alerta', () => {
-    expect(avaliar({ type: 'ocorrencia.criada', ocorrencia: ocorrencia() }, ctx({ posicao: null }), AGORA)).toBeNull();
+    expect(
+      avaliar(
+        { type: 'ocorrencia.criada', ocorrencia: ocorrencia() },
+        ctx({ posicao: null }),
+        AGORA,
+      ),
+    ).toBeNull();
   });
 
   it('confirmações não repetem o alerta; piorar alerta de novo', () => {
     const jaAlertada = new Map([[1, 'alto' as const]]);
-    expect(avaliar({ type: 'ocorrencia.atualizada', ocorrencia: ocorrencia() }, ctx({ jaAlertada }), AGORA)).toBeNull();
+    expect(
+      avaliar(
+        { type: 'ocorrencia.atualizada', ocorrencia: ocorrencia() },
+        ctx({ jaAlertada }),
+        AGORA,
+      ),
+    ).toBeNull();
     const pior = avaliar(
       { type: 'ocorrencia.atualizada', ocorrencia: ocorrencia({ severidade: 'critico' }) },
       ctx({ jaAlertada }),
@@ -68,7 +100,8 @@ describe('acrescentar', () => {
     let lista = acrescentar([], base);
     lista = acrescentar(lista, { ...base });
     expect(lista).toHaveLength(1);
-    for (let i = 2; i < MAX_ALERTAS + 10; i++) lista = acrescentar(lista, { ...base, chave: `${i}:alto` });
+    for (let i = 2; i < MAX_ALERTAS + 10; i++)
+      lista = acrescentar(lista, { ...base, chave: `${i}:alto` });
     expect(lista).toHaveLength(MAX_ALERTAS);
     expect(lista[0]?.chave).toBe(`${MAX_ALERTAS + 9}:alto`);
   });

@@ -29,12 +29,11 @@ function item(id: number, recebidoEm: string): ItemAlerta {
   };
 }
 
-
 describe('agruparPorDia', () => {
   // domingo, 8 nov 2026
   const agora = new Date(2026, 10, 8, 10, 0);
 
-  it('mostra sempre os últimos 7 dias, do mais recente ao mais antigo', () => {
+  it('mostra hoje e os 3 dias anteriores, mesmo vazios', () => {
     const dias = agruparPorDia(
       [
         item(1, new Date(2026, 10, 8, 9, 0).toISOString()),
@@ -45,27 +44,18 @@ describe('agruparPorDia', () => {
       agora,
     );
 
-    expect(dias.map((dia) => dia.rotulo)).toEqual([
-      'Hoje',
-      'Ontem',
-      'sex 6',
-      'qui 5',
-      'qua 4',
-      'ter 3',
-      'seg 2',
-    ]);
+    expect(dias.map((dia) => dia.rotulo)).toEqual(['Hoje', 'Ontem', 'sex 6 nov', 'qui 5 nov']);
     expect(dias[0]!.itens.map((i) => i.ocorrencia.id)).toEqual([1, 4]);
     expect(dias[3]!.itens).toEqual([]);
   });
 
-  it('acrescenta dias mais antigos só se tiverem alerta e ignora datas inválidas', () => {
+  it('deixa de fora alertas mais antigos e datas inválidas', () => {
     const dias = agruparPorDia(
       [item(1, 'não é data'), item(2, new Date(2026, 9, 20).toISOString())],
       agora,
     );
 
-    expect(dias).toHaveLength(8);
-    expect(dias[7]!.rotulo).toBe('20 out');
-    expect(dias.slice(0, 7).every((dia) => dia.itens.length === 0)).toBe(true);
+    expect(dias).toHaveLength(4);
+    expect(dias.every((dia) => dia.itens.length === 0)).toBe(true);
   });
 });

@@ -3,7 +3,10 @@ import type { Ocorrencia } from '@/domain/tipos';
 import { avaliarZonas, RAIO_INFLUENCIA_M } from './zona';
 
 const BASE = { latitude: -23.5613, longitude: -46.6565 };
-const filtro = { limiar: 'baixo' as const, tiposAtivos: ['alagamento', 'calor', 'qualidade_ar', 'rota_obstruida'] as const };
+const filtro = {
+  limiar: 'baixo' as const,
+  tiposAtivos: ['alagamento', 'calor', 'qualidade_ar', 'rota_obstruida'] as const,
+};
 
 /** Ocorrência a `metros` ao norte de BASE. */
 function o(id: number, metros: number, extra: Partial<Ocorrencia> = {}): Ocorrencia {
@@ -36,7 +39,9 @@ describe('avaliarZonas', () => {
   });
 
   it('fora do raio não avisa', () => {
-    expect(avaliarZonas([o(1, RAIO_INFLUENCIA_M.alto + 50)], BASE, new Set(), f).entrou).toEqual([]);
+    expect(avaliarZonas([o(1, RAIO_INFLUENCIA_M.alto + 50)], BASE, new Set(), f).entrou).toEqual(
+      [],
+    );
   });
 
   it('histerese: na borda (até 120%) continua dentro; além disso sai e pode avisar de novo', () => {
@@ -49,8 +54,15 @@ describe('avaliarZonas', () => {
   });
 
   it('respeita limiar, tipos ativos e status', () => {
-    expect(avaliarZonas([o(1, 50, { severidade: 'baixo' })], BASE, new Set(), { ...f, limiar: 'moderado' }).entrou).toEqual([]);
-    expect(avaliarZonas([o(1, 50)], BASE, new Set(), { ...f, tiposAtivos: ['calor'] }).entrou).toEqual([]);
+    expect(
+      avaliarZonas([o(1, 50, { severidade: 'baixo' })], BASE, new Set(), {
+        ...f,
+        limiar: 'moderado',
+      }).entrou,
+    ).toEqual([]);
+    expect(
+      avaliarZonas([o(1, 50)], BASE, new Set(), { ...f, tiposAtivos: ['calor'] }).entrou,
+    ).toEqual([]);
     expect(avaliarZonas([o(1, 50, { status: 'expirada' })], BASE, new Set(), f).entrou).toEqual([]);
   });
 

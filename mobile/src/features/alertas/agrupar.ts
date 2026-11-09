@@ -3,7 +3,7 @@ import type { ItemAlerta } from './regras';
 export type DiaAlertas = {
   /** "aaaa-m-d" no fuso local; estável para a seleção do dia. */
   chave: string;
-  /** "Hoje", "Ontem", "sex 6" (na semana) ou "6 nov" (mais antigo). */
+  /** "Hoje", "Ontem" ou "sex 6 nov". */
   rotulo: string;
   itens: ItemAlerta[];
 };
@@ -11,8 +11,8 @@ export type DiaAlertas = {
 const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
 const SEMANA = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
 
-/** Dias que sempre aparecem (mesmo sem alerta), contando hoje. */
-export const DIAS_VISIVEIS = 7;
+/** Dias no seletor (mesmo sem alerta): hoje e os 3 anteriores. */
+export const DIAS_VISIVEIS = 4;
 
 function chaveDia(data: Date): string {
   return `${data.getFullYear()}-${data.getMonth()}-${data.getDate()}`;
@@ -20,10 +20,13 @@ function chaveDia(data: Date): string {
 
 /**
  * Separa por dia local, do mais recente ao mais antigo, preservando a ordem recebida dentro de
- * cada dia. Os últimos DIAS_VISIVEIS dias aparecem sempre (vazios também, para dar para voltar
- * no tempo); dias mais antigos só se tiverem alerta. Datas inválidas ficam fora.
+ * cada dia. Só os últimos DIAS_VISIVEIS dias (vazios também, para dar para voltar no tempo);
+ * alertas mais antigos e datas inválidas ficam fora.
  */
-export function agruparPorDia(alertas: readonly ItemAlerta[], agora: Date = new Date()): DiaAlertas[] {
+export function agruparPorDia(
+  alertas: readonly ItemAlerta[],
+  agora: Date = new Date(),
+): DiaAlertas[] {
   const ontem = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate() - 1);
   const chaveHoje = chaveDia(agora);
   const chaveOntem = chaveDia(ontem);
@@ -38,25 +41,19 @@ export function agruparPorDia(alertas: readonly ItemAlerta[], agora: Date = new 
     else dias.set(chave, { data, itens: [alerta] });
   }
 
-  const rotular = (chave: string, data: Date, naSemana: boolean): string =>
+  const rotular = (chave: string, data: Date): string =>
     chave === chaveHoje
       ? 'Hoje'
       : chave === chaveOntem
         ? 'Ontem'
-        : naSemana
-          ? `${SEMANA[data.getDay()]} ${data.getDate()}`
-          : `${data.getDate()} ${MESES[data.getMonth()]}`;
+        : `${SEMANA[data.getDay()]} ${data.getDate()} ${MESES[data.getMonth()]}`;
 
   const resultado: DiaAlertas[] = [];
   for (let i = 0; i < DIAS_VISIVEIS; i += 1) {
     const data = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate() - i);
     const chave = chaveDia(data);
-    resultado.push({ chave, rotulo: rotular(chave, data, true), itens: dias.get(chave)?.itens ?? [] });
+    resultado.push({ chave, rotulo: rotular(chave, data), itens: dias.get(chave)?.itens ?? [] });
     dias.delete(chave);
-  }
-  const antigos = [...dias.entries()].sort(([, a], [, b]) => b.data.getTime() - a.data.getTime());
-  for (const [chave, { data, itens }] of antigos) {
-    resultado.push({ chave, rotulo: rotular(chave, data, false), itens });
   }
   return resultado;
 }

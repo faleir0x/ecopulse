@@ -9,7 +9,10 @@ export type PermissaoNotificacao = 'verificando' | 'concedida' | 'negada';
  * pode ter ligado nas configurações do sistema). `ativar` pede; se o sistema não deixa pedir
  * de novo, abre as configurações do app.
  */
-export function usePermissaoNotificacao(): { permissao: PermissaoNotificacao; ativar: () => Promise<void> } {
+export function usePermissaoNotificacao(): {
+  permissao: PermissaoNotificacao;
+  ativar: () => Promise<void>;
+} {
   const [permissao, setPermissao] = useState<PermissaoNotificacao>('verificando');
 
   useEffect(() => {

@@ -13,6 +13,7 @@ import { espaco, raio, tamanho } from '@/theme/tokens';
 
 import { agruparPorDia } from './agrupar';
 import { AlertRow } from './AlertRow';
+import { SeletorDia } from './SeletorDia';
 import { usePermissaoNotificacao } from './permissao';
 
 export function TelaAlertas() {
@@ -105,61 +106,24 @@ export function TelaAlertas() {
           </Card>
         ) : (
           <>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.chips}
-              style={styles.chipsRolagem}
-            >
-              {dias.map((d) => {
-                const ativo = d.chave === dia?.chave;
-                const temNovo = d.itens.some((item) => !item.lido);
-                return (
-                  <Pressable
-                    key={d.chave}
-                    onPress={() => setChaveDia(d.chave)}
-                    accessibilityRole="tab"
-                    accessibilityState={{ selected: ativo }}
-                    accessibilityLabel={`${d.rotulo}${temNovo ? ', com novos' : ''}`}
-                    style={[styles.chip, { backgroundColor: ativo ? cor.ink : cor.surfaceMuted }]}
-                  >
-                    <T
-                      estilo="headline"
-                      cromo
-                      numberOfLines={1}
-                      style={[styles.chipTexto, { color: ativo ? cor.onInk : cor.textPrimary }]}
-                    >
-                      {d.rotulo}
-                    </T>
-                    {temNovo ? (
-                      <View style={[styles.chipPonto, { backgroundColor: cor.accent }]} />
-                    ) : null}
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
+            <View style={styles.barraDia}>
+              <SeletorDia dias={dias} valor={dia?.chave ?? null} onChange={setChaveDia} />
+              {dia && dia.itens.some((item) => !item.lido) ? (
+                <T estilo="caption" cor="accent" cromo numberOfLines={1}>
+                  {(() => {
+                    const novos = dia.itens.filter((item) => !item.lido).length;
+                    return novos === 1 ? '1 novo' : `${novos} novos`;
+                  })()}
+                </T>
+              ) : null}
+            </View>
             {dia && dia.itens.length === 0 ? (
               <Card estilo={[styles.lista, styles.listaSemNovos]}>
                 <EmptyRow titulo="Nenhum alerta neste dia" icone="bell-off" />
               </Card>
             ) : dia ? (
               <>
-                {dia.itens.some((item) => !item.lido) ? (
-                  <View style={styles.grupoCabecalho}>
-                    <T estilo="caption" cor="accent" cromo numberOfLines={1}>
-                      {(() => {
-                        const novos = dia.itens.filter((item) => !item.lido).length;
-                        return novos === 1 ? '1 novo' : `${novos} novos`;
-                      })()}
-                    </T>
-                  </View>
-                ) : null}
-                <Card
-                  estilo={[
-                    styles.lista,
-                    dia.itens.every((item) => item.lido) ? styles.listaSemNovos : null,
-                  ]}
-                >
+                <Card estilo={[styles.lista, styles.listaSemNovos]}>
                   {dia.itens.map((item, indice) => (
                     <View key={item.chave}>
                       {indice > 0 ? (
@@ -197,6 +161,14 @@ const styles = StyleSheet.create({
   titulo: {
     flexShrink: 1,
   },
+  barraDia: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: espaco.md,
+    marginTop: espaco.lg,
+    paddingRight: espaco.xs,
+  },
   lerTodos: {
     height: 36,
     flexDirection: 'row',
@@ -208,31 +180,6 @@ const styles = StyleSheet.create({
   lerTodosTexto: {
     fontSize: 15,
     lineHeight: 20,
-  },
-  chipsRolagem: {
-    marginTop: espaco.lg,
-    marginHorizontal: -espaco.gutter,
-  },
-  chips: {
-    gap: espaco.sm,
-    paddingHorizontal: espaco.gutter,
-  },
-  chip: {
-    height: 36,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 14,
-    borderRadius: raio.pill,
-  },
-  chipTexto: {
-    fontSize: 15,
-    lineHeight: 20,
-  },
-  chipPonto: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
   },
   conteudo: {
     paddingHorizontal: espaco.gutter,
@@ -270,15 +217,6 @@ const styles = StyleSheet.create({
   vazio: {
     marginTop: espaco.lg,
     overflow: 'hidden',
-  },
-  grupoCabecalho: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: espaco.md,
-    marginTop: espaco.md,
-    marginBottom: espaco.sm,
-    paddingHorizontal: espaco.xs,
   },
   lista: {
     overflow: 'hidden',

@@ -269,7 +269,7 @@ describe('MediaPicker', () => {
     );
   });
 
-  it('mostra e recolhe as opções ao tocar em Foto', async () => {
+  it('troca Foto por Câmera/Galeria no lugar e volta pelo ×', async () => {
     const { getByLabelText, queryByLabelText } = await render(
       <TemaProvider inicial="escuro">
         <MediaPicker
@@ -288,10 +288,12 @@ describe('MediaPicker', () => {
     await fireEvent.press(getByLabelText('Foto'));
     expect(getByLabelText('Câmera')).toBeTruthy();
     expect(getByLabelText('Galeria')).toBeTruthy();
+    // Troca no lugar: Foto e Detalhe saem enquanto as opções estão abertas
+    expect(queryByLabelText('Detalhe')).toBeNull();
 
-    await fireEvent.press(getByLabelText('Foto'));
+    await fireEvent.press(getByLabelText('Fechar opções de foto'));
     expect(queryByLabelText('Câmera')).toBeNull();
-    expect(queryByLabelText('Galeria')).toBeNull();
+    expect(getByLabelText('Foto')).toBeTruthy();
   });
 
   it('mostra a linha de permissão negada sem diálogo nativo', async () => {

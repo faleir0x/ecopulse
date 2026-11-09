@@ -61,7 +61,7 @@ Conferência com o texto da APS (seções II–V) mostrou lacunas; a proposta pe
 - [x] `GET /v1/relatos/{client_id}` (ocorrência e confirmações do próprio relato) e "Meus relatos" abrindo o detalhe no Mapa
 - [x] Rate limit também por IP (além do por aparelho)
 - [x] Ajustes finos de design listados na 4.5: miniatura 48 px no componente compartilhado, contador "N novos" em Alertas, ícone `bell-off` no vazio
-- [ ] Mapa de calor interpolado (superfície contínua a partir das leituras, sem quadrados) com escala relativa à área visível e legenda em °C reais
+- [x] Mapa de calor interpolado (superfície contínua a partir das leituras, sem quadrados) com escala relativa à área visível e legenda em °C reais
 - [ ] Avaliar com o professor se a identificação anônima por aparelho atende (sem login)
 - [x] Diálogos nativos do relato trocados por opções dentro da sheet
 - [x] Canal de notificação Android "Alertas de risco" (prioridade alta, ações "Ver no mapa" e "Silenciar 1 h")
@@ -70,8 +70,8 @@ Conferência com o texto da APS (seções II–V) mostrou lacunas; a proposta pe
 - [x] Cloudflare Tunnel (api/rt.faleir0x.com, perfil `tunel`) com IP real via CF-Connecting-IP só vindo do túnel
 
 ## Fase 6: Entrega
-- [ ] **6.1** CD: publicação das imagens no GHCR (packages)
-- [ ] **6.4** APK do app nas Releases do GitHub (workflow por tag: expo prebuild + Gradle no runner, APK assinado)
+- [ ] **6.1** CD: publicação das imagens no GHCR (packages), com proveniência e SBOM; `docker-compose.ghcr.yml` sobe a stack pelas imagens. Falta: rodar em master/tag
+- [ ] **6.4** APK do app nas Releases do GitHub (workflow `apk.yml` por tag: expo prebuild + Gradle no runner, assinatura com apksigner). Falta: segredos no repositório e a 1ª tag
 - [ ] **6.5** Push remoto com Firebase (FCM): serviço `notifier` consumindo `ocorrencia.*` e enviando para os aparelhos das células; alerta com o app fechado (depende do APK da 6.4)
 - [ ] **6.2** Scripts dos cenários de demonstração (falhas, escala, offline)
 - [ ] **6.3** Base do relatório final (estrutura ABNT/UNIP) — por último

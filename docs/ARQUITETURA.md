@@ -58,6 +58,7 @@ O volume de escrita é pequeno. Os pontos difíceis são **absorver picos** (fil
 | `processor` | Consome relatos: deduplica, geohash, agrupa em ocorrências, grava, emite eventos via outbox | N réplicas, particionado por região |
 | `realtime` | Conexões WebSocket; cada cliente assina as células ao seu redor | N réplicas unidas pelo pub/sub |
 | `environment` | Coleta AQI/temperatura por célula; modo simulador para demonstração | 1 instância |
+| `notifier` | Push remoto (FCM) para os aparelhos cujo raio alcança a ocorrência, com o app fechado | N réplicas (fila quorum compartilhada) |
 
 Escrita assíncrona pela fila e leitura síncrona pelo cache/banco: um **CQRS simplificado**.
 
@@ -67,6 +68,7 @@ Escrita assíncrona pela fila e leitura síncrona pelo cache/banco: um **CQRS si
 - **`ocorrencias`**: agrupa relatos do mesmo tipo a menos de 300 m nas últimas 2 h (`ST_DWithin`). Guarda severidade, confirmações, status e expiração.
 - **`leituras_ambiente`**: AQI e temperatura por célula e horário.
 - **`outbox`**: eventos a publicar, gravados na mesma transação da mudança.
+- **`aparelhos`**: token FCM, posição arredondada (~100 m), raio, limiar e tipos de cada aparelho com push; some após 7 dias sem renovação.
 
 ## Eventos
 
@@ -76,7 +78,7 @@ Exchange topic `ecopulse.events`. Envelope: `event_id, type, version, occurred_a
 |---|---|---|
 | `relato.recebido` | api | processor |
 | `resolucao.recebida` | api | processor |
-| `ocorrencia.criada` / `.atualizada` / `.expirada` | processor (outbox) | realtime, invalidação de cache |
+| `ocorrencia.criada` / `.atualizada` / `.expirada` | processor (outbox) | realtime, notifier (criada/atualizada), invalidação de cache |
 | `leitura.ambiente` | environment | processor |
 
 ## Confiabilidade de ponta a ponta
@@ -115,6 +117,7 @@ ocorrencia.* ─► fila realtime.ponte (compartilhada) ─► SPUBLISH ocorrenc
 - **Assinaturas:** cada instância conta referências por célula e só fica inscrita enquanto algum cliente dela quer a célula. Adicionar instâncias não multiplica o tráfego no broker.
 - **Backpressure:** cada conexão tem uma fila de saída de 100 mensagens; cliente lento é desconectado (código 1013) em vez de atrasar os outros. O app reconecta e recarrega pelo `GET`.
 - Medido no compose: relato → alerta no WebSocket em ~0,7 s (o relay da outbox verifica a cada 0,5 s).
+- **Push remoto:** com o app fechado, o `notifier` avisa pelo FCM os aparelhos registrados cujo raio alcança a ocorrência; `SET NX` por ocorrência, severidade e aparelho evita repetir ([ADR 0007](adr/0007-notificacoes.md)).
 
 ## API
 
@@ -124,7 +127,12 @@ GET  /v1/ocorrencias?bbox=&tipo=
 GET  /v1/ocorrencias/{id}
 POST /v1/ocorrencias/{id}/confirmacoes   → 202
 POST /v1/ocorrencias/{id}/resolucoes     → 202
-GET  /v1/ambiente?bbox=
+PUT  /v1/aparelhos/{id}                  → 204 (token FCM, posição, raio, limiar, tipos)
+DELETE /v1/aparelhos/{id}                → 204
+GET  /v1/ambiente?lat=&lon=
+GET  /v1/ambiente/camada?bbox=
+GET  /v1/locais?q=&perto=
+GET  /v1/rotas?origem=&destino=&modo=
 WS   /v1/ws   cliente: {"op":"subscribe","cells":[...]}
               servidor: {"type":"ocorrencia.atualizada", ...}
 ```
@@ -166,4 +174,4 @@ Redis Cluster: redis-1..3 mestres + redis-4..6 réplicas (uma por mestre), node 
 
 ## O que revisar se o sistema crescer
 
-Kafka para telemetria contínua dos aparelhos; H3 no lugar de GeoHash; PostgreSQL com réplica e failover (Patroni); push remoto via FCM/APNs; autenticação.
+Kafka para telemetria contínua dos aparelhos; H3 no lugar de GeoHash; PostgreSQL com réplica e failover (Patroni); APNs para iOS; autenticação.

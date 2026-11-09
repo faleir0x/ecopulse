@@ -281,3 +281,29 @@ export async function buscarLocais(
     true,
   );
 }
+
+/** Corpo do PUT /v1/aparelhos/{id} (schemas.AparelhoIn): registro para push remoto. */
+export type AparelhoEnvio = {
+  token: string;
+  latitude: number;
+  longitude: number;
+  raio_m: number;
+  limiar: Severidade;
+  tipos: TipoRisco[];
+  silenciado_ate: string | null;
+};
+
+/** PUT /v1/aparelhos/{id} → 204. */
+export async function registrarAparelho(id: string, corpo: AparelhoEnvio, op: Opcoes = {}): Promise<void> {
+  await pedir<void>(
+    `/v1/aparelhos/${encodeURIComponent(id)}`,
+    { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) },
+    op,
+    false,
+  );
+}
+
+/** DELETE /v1/aparelhos/{id} → 204 (o app desligou as notificações). */
+export async function removerAparelho(id: string, op: Opcoes = {}): Promise<void> {
+  await pedir<void>(`/v1/aparelhos/${encodeURIComponent(id)}`, { method: 'DELETE' }, op, false);
+}

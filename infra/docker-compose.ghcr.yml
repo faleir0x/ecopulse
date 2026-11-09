@@ -1,0 +1,18 @@
+# Sobe os serviços a partir das imagens publicadas no GHCR (workflow CD), sem build local:
+#   ECOPULSE_TAG=master docker compose -f docker-compose.yml -f docker-compose.ghcr.yml up -d
+x-imagem: &imagem
+  pull_policy: always
+
+services:
+  api:
+    <<: *imagem
+    image: ghcr.io/faleir0x/ecopulse-api:${ECOPULSE_TAG:-latest}
+  processor:
+    <<: *imagem
+    image: ghcr.io/faleir0x/ecopulse-processor:${ECOPULSE_TAG:-latest}
+  environment:
+    <<: *imagem
+    image: ghcr.io/faleir0x/ecopulse-environment:${ECOPULSE_TAG:-latest}
+  realtime:
+    <<: *imagem
+    image: ghcr.io/faleir0x/ecopulse-realtime:${ECOPULSE_TAG:-latest}

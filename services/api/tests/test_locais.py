@@ -80,6 +80,28 @@ def test_parse_poe_nome_exato_primeiro() -> None:
     assert locais._parse(dados, "pinheiros")[0].nome == "Pinheiros"
 
 
+def test_parse_poe_cidade_digitada_antes_da_proxima() -> None:
+    # Com foco em Ribeirão Preto o ORS devolve primeiro as avenidas de lá
+    dados = {
+        "features": [
+            _feature(
+                "Avenida Leais Paulista", "Avenida Leais Paulista, Ribeirao Preto, SP, Brazil", 0, 0
+            ),
+            _feature("Avenida Paulista", "Avenida Paulista, Guariba, SP, Brazil", 0, 0),
+            _feature("Avenida Paulista", "Avenida Paulista, São Paulo, Brazil", 0, 0),
+        ]
+    }
+
+    resultado = locais._parse(dados, "Avenida Paulista Sao Paulo")
+    assert resultado[0].detalhe == "São Paulo"
+
+
+def test_cobertura_aceita_ultima_palavra_pela_metade() -> None:
+    assert locais.cobertura("avenida paul", "Avenida Paulista, São Paulo, Brazil") == 1.0
+    assert locais.cobertura("paulista são paulo", "Avenida Paulista, Guariba, SP") < 1.0
+    assert locais.cobertura("", "qualquer") == 1.0
+
+
 def test_chave_do_cache_separa_regioes() -> None:
     assert locais.chave_cache("Bela Vista", (-23.55, -46.64)) != locais.chave_cache("Bela Vista")
     assert locais.chave_cache("bela  vista", (-23.531, -46.641)) == locais.chave_cache(

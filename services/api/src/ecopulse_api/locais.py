@@ -6,6 +6,8 @@ A chave fica só no servidor; cache de 1 dia no Redis Cluster por texto normaliz
 """
 
 import logging
+import re
+import unicodedata
 from typing import Any
 
 import httpx
@@ -45,10 +47,32 @@ def normalizar(texto: str) -> str:
     return " ".join(texto.split()).lower()
 
 
+def _palavras(texto: str) -> list[str]:
+    """ "Ribeirão Preto, SP" → ["ribeirao", "preto", "sp"] (sem acento, sem pontuação)."""
+    sem_acento = unicodedata.normalize("NFKD", texto).encode("ascii", "ignore").decode()
+    return re.findall(r"[a-z0-9]+", sem_acento.lower())
+
+
+def cobertura(texto: str, rotulo: str) -> float:
+    """Fração das palavras digitadas que aparecem no rótulo; a última vale como prefixo
+    (a pessoa ainda está digitando). Com o ponto de foco, o ORS põe "Avenida Leais Paulista,
+    Ribeirão Preto" antes da Paulista de São Paulo mesmo quando "São Paulo" foi digitado."""
+    digitadas = _palavras(texto)
+    if not digitadas:
+        return 1.0
+    no_rotulo = _palavras(rotulo)
+    presentes = set(no_rotulo)
+    acertos = sum(1 for palavra in digitadas[:-1] if palavra in presentes)
+    ultima = digitadas[-1]
+    acertos += any(palavra.startswith(ultima) for palavra in no_rotulo)
+    return acertos / len(digitadas)
+
+
 def chave_cache(texto: str, perto: tuple[float, float] | None = None) -> str:
     # perto arredondado a ~10 km: buscas da mesma região dividem o cache
     regiao = f"{perto[0]:.1f},{perto[1]:.1f}" if perto else "-"
-    return f"locais:{{{normalizar(texto)}|{regiao}}}"
+    # v2: ordem por cobertura do texto digitado (entradas antigas tinham outra ordem)
+    return f"locais:v2:{{{normalizar(texto)}|{regiao}}}"
 
 
 def _detalhe(nome: str, rotulo: str | None) -> str | None:
@@ -70,11 +94,13 @@ def _parse(dados: Any, texto: str = "") -> list[LocalEncontrado]:
     vistos: set[str] = set()
     procurado = normalizar(texto)
 
-    def ordem(feature: dict[str, Any]) -> tuple[int, int]:
+    def ordem(feature: dict[str, Any]) -> tuple[float, int, int]:
         props = feature.get("properties") or {}
+        # Tudo o que foi digitado aparece no rótulo antes do que é só perto
+        casamento = -cobertura(texto, str(props.get("label") or props.get("name", "")))
         # Nome igual ao digitado ("Pinheiros") antes de "Esporte Clube Pinheiros"
         exato = 0 if normalizar(str(props.get("name", ""))) == procurado else 1
-        return exato, PRIORIDADE.get(str(props.get("layer")), 3)
+        return casamento, exato, PRIORIDADE.get(str(props.get("layer")), 3)
 
     features = sorted((f for f in dados["features"] if isinstance(f, dict)), key=ordem)
     for feature in features:

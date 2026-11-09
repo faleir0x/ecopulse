@@ -15,8 +15,9 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from redis.asyncio.cluster import RedisCluster
 from redis.exceptions import RedisError
 
-from ecopulse_api import invalidacao, leitura, limite, locais, rotas
+from ecopulse_api import aparelhos, invalidacao, leitura, limite, locais, rotas
 from ecopulse_api.schemas import (
+    AparelhoIn,
     CelulaAmbiente,
     ConfirmacaoIn,
     LocalEncontrado,
@@ -424,3 +425,21 @@ async def resolver_ocorrencia(
         ),
     )
     return RelatoAceito(client_id=resolucao.client_id)
+
+
+@app.put("/v1/aparelhos/{aparelho_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def registrar_aparelho(aparelho_id: UUID, dados: AparelhoIn, request: Request) -> None:
+    """Registra/renova o aparelho para push remoto (ver AparelhoIn), com limite por IP."""
+    ip = _ip_cliente(request)
+    _exigir_limite(
+        await limite.consumir_aparelho(_redis(request), ip),
+        "muitos registros deste IP",
+        {"ip": ip},
+    )
+    await aparelhos.registrar(_pool(request), aparelho_id, dados)
+
+
+@app.delete("/v1/aparelhos/{aparelho_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remover_aparelho(aparelho_id: UUID, request: Request) -> None:
+    """Remove o registro (o app desligou as notificações). Idempotente."""
+    await aparelhos.remover(_pool(request), aparelho_id)

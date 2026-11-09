@@ -82,6 +82,15 @@ def chave_rota(ip: str) -> str:
     return f"rl:rota:{{{ip}}}"
 
 
+# Registro/renovação do aparelho: 5 em rajada; depois, 1 a cada 30 s
+CAPACIDADE_APARELHO = 5
+TOKENS_POR_SEGUNDO_APARELHO = 1 / 30
+
+
+def chave_aparelho(ip: str) -> str:
+    return f"rl:aparelho:{{{ip}}}"
+
+
 async def _consumir(
     redis: RedisCluster,
     chave_balde: str,
@@ -151,3 +160,13 @@ async def consumir_local(
 ) -> Resultado:
     """Tenta gastar 1 token de busca de local do IP de origem."""
     return await _consumir(redis, chave_local(ip), capacidade, tokens_por_segundo, {"ip": ip})
+
+
+async def consumir_aparelho(
+    redis: RedisCluster,
+    ip: str,
+    capacidade: int = CAPACIDADE_APARELHO,
+    tokens_por_segundo: float = TOKENS_POR_SEGUNDO_APARELHO,
+) -> Resultado:
+    """Tenta gastar 1 token de registro de aparelho do IP de origem."""
+    return await _consumir(redis, chave_aparelho(ip), capacidade, tokens_por_segundo, {"ip": ip})

@@ -1,7 +1,7 @@
 """Cria ocorrências de demonstração em volta da Av. Paulista pela API (caminho real:
 API → RabbitMQ → processor → PostGIS → outbox → eventos).
 
-Uso: uv run python infra/demo/semear.py [--api http://localhost:8000]
+Uso: uv run python infra/demo/semear.py [--api http://localhost:8000] [--centro lat,lon]
 """
 
 import argparse
@@ -49,12 +49,16 @@ def postar(api: str, corpo: dict[str, object]) -> int:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--api", default="http://localhost:8000")
+    parser.add_argument(
+        "--centro", default=None, help="lat,lon do centro (padrão: Av. Paulista com Augusta)"
+    )
     args = parser.parse_args()
+    centro = tuple(float(v) for v in args.centro.split(",")) if args.centro else CENTRO
     aleatorio = random.Random(42)  # noqa: S311 (dados de demo)
 
     total = 0
     for tipo, severidade, (norte, leste), quantidade, notas in CENARIO:
-        lat, lon = deslocar(*CENTRO, norte, leste)
+        lat, lon = deslocar(centro[0], centro[1], norte, leste)
         for i in range(quantidade):
             # Espalha até ~60 m: todos caem na mesma ocorrência (raio de agrupamento 300 m)
             jlat, jlon = deslocar(lat, lon, aleatorio.uniform(-60, 60), aleatorio.uniform(-60, 60))
@@ -73,7 +77,7 @@ def main() -> None:
             total += 1
             time.sleep(0.05)
         print(f"{tipo:15} {severidade:9} {quantidade:2} relato(s)")
-    print(f"{total} relatos enviados em volta de {CENTRO}")
+    print(f"{total} relatos enviados em volta de {centro}")
 
 
 if __name__ == "__main__":

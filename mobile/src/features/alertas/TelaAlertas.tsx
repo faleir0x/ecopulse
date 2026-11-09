@@ -37,14 +37,20 @@ export function TelaAlertas() {
         <T estilo="large" cromo numberOfLines={1} style={styles.titulo}>
           Alertas
         </T>
-        {naoLidosTotal > 0 ? (
+        {alertas.length > 0 ? (
           <Pressable
             onPress={marcarTodosLidos}
+            disabled={naoLidosTotal === 0}
             accessibilityRole="button"
+            accessibilityState={{ disabled: naoLidosTotal === 0 }}
             hitSlop={8}
             style={({ pressed }) => [
               styles.lerTodos,
-              { backgroundColor: cor.surfaceMuted, transform: [{ scale: pressed ? 0.97 : 1 }] },
+              {
+                backgroundColor: cor.surfaceMuted,
+                opacity: naoLidosTotal === 0 ? 0.45 : 1,
+                transform: [{ scale: pressed ? 0.97 : 1 }],
+              },
             ]}
           >
             <Icon name="check-circle" tamanho={tamanho.iconSm} cor={cor.textPrimary} />
@@ -132,7 +138,11 @@ export function TelaAlertas() {
                 );
               })}
             </ScrollView>
-            {dia ? (
+            {dia && dia.itens.length === 0 ? (
+              <Card estilo={[styles.lista, styles.listaSemNovos]}>
+                <EmptyRow titulo="Nenhum alerta neste dia" icone="bell-off" />
+              </Card>
+            ) : dia ? (
               <>
                 {dia.itens.some((item) => !item.lido) ? (
                   <View style={styles.grupoCabecalho}>

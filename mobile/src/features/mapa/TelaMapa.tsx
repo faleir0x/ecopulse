@@ -21,7 +21,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { OfflinePill, Pill, SegmentedFilter } from '@/components';
 import { ROTULO_TIPO, TIPOS_RISCO, type Ocorrencia, type TipoRisco } from '@/domain/tipos';
-import { simularPercurso, useLocalizacao } from '@/features/localizacao';
+import { simularPercurso, ultimaPosicaoConhecida, useLocalizacao } from '@/features/localizacao';
 import { estiloMapa } from '@/features/mapa/estiloMapa';
 import { useConfirmar, useDetalhe, useOcorrencias, useResolver } from '@/features/ocorrencias';
 import { DestinoMarker } from '@/features/rota/DestinoMarker';
@@ -109,7 +109,11 @@ export function TelaMapa() {
 
   const localizacao = useLocalizacao();
   const temLocalizacao = localizacao.status === 'ok';
-  const origem = temLocalizacao ? localizacao.coords : CENTRO_SAO_PAULO;
+  // Sem posição ainda: a última conhecida do aparelho (não São Paulo para quem está em outra cidade)
+  const [ultimaConhecida] = useState(() => ultimaPosicaoConhecida());
+  const origem = temLocalizacao ? localizacao.coords : (ultimaConhecida ?? CENTRO_SAO_PAULO);
+  // Cada vez que o MapView (re)nasce ele volta para a initialCamera: centraliza de novo
+  const [versaoMapa, setVersaoMapa] = useState(0);
   const modoFoco = selecionadoId !== null;
   const rota = useRotaSegura(temLocalizacao ? localizacao.coords : null);
   const { fase: faseRota, limpar: limparRota, setDestino: setDestinoRota, voltar: voltarRota } = rota;
@@ -369,7 +373,7 @@ export function TelaMapa() {
     return () => inscricao.remove();
   }, [modoRota, faseRota, voltarRota, sairRota]);
 
-  // Centraliza na localização assim que ela fica disponível (uma vez).
+  // Centraliza na localização assim que ela fica disponível (uma vez por mapa montado).
   useEffect(() => {
     if (temLocalizacao && localizacao.status === 'ok' && !jaCentralizou.current) {
       jaCentralizou.current = true;
@@ -378,7 +382,7 @@ export function TelaMapa() {
         { duration: 600 },
       );
     }
-  }, [temLocalizacao, localizacao]);
+  }, [temLocalizacao, localizacao, versaoMapa]);
 
   // Ao abrir o detalhe, foca o alvo (a mapPadding deixa a área acima da sheet livre).
   useEffect(() => {
@@ -477,6 +481,10 @@ export function TelaMapa() {
           pitch: 0,
         }}
         style={StyleSheet.absoluteFill}
+        onMapReady={() => {
+          jaCentralizou.current = false;
+          setVersaoMapa((versao) => versao + 1);
+        }}
         toolbarEnabled={false}
         showsCompass={false}
         showsMyLocationButton={false}

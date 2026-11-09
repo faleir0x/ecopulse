@@ -141,16 +141,26 @@ describe('TelaAlertas por dia', () => {
     return { ...alerta(id, lido), recebidoEm: data.toISOString() };
   }
 
-  it('"Ler todos" marca tudo e só aparece com não lidos', async () => {
+  it('"Ler todos" marca tudo e fica desabilitado quando não há novos', async () => {
     mockAlertas = [em(1, 0)];
     const { getByText } = await montar();
 
     await fireEvent.press(getByText('Ler todos'));
     expect(mockMarcarTodos).toHaveBeenCalledTimes(1);
 
+    mockMarcarTodos.mockClear();
     mockAlertas = [em(1, 0, true)];
     const lidos = await montar();
-    expect(lidos.queryByText('Ler todos')).toBeNull();
+    await fireEvent.press(lidos.getByText('Ler todos'));
+    expect(mockMarcarTodos).not.toHaveBeenCalled();
+  });
+
+  it('dia sem alerta mostra o vazio', async () => {
+    mockAlertas = [em(1, 0)];
+    const { getByText } = await montar();
+
+    await fireEvent.press(getByText('Ontem'));
+    expect(getByText('Nenhum alerta neste dia')).toBeTruthy();
   });
 
   it('mostra um dia por vez e troca pelo chip', async () => {

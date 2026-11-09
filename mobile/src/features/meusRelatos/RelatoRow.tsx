@@ -129,7 +129,8 @@ export function RelatoRow({ relato, onEncerrar, onAbrirMidia, onAbrir }: RelatoR
         ) : null}
       </View>
 
-      {podeEncerrar ? (
+      {/* Já encerrada no servidor (validade ou "Já passou" de outros): nada a marcar */}
+      {podeEncerrar && !expirada ? (
         <Pill
           rotulo="Já passou"
           onPress={() =>

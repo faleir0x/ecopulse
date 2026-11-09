@@ -23,3 +23,6 @@ class Settings(BaseSettings):
     # environment: "open-meteo" (real) ou "simulador" (demo offline / onda de calor)
     ambiente_fonte: str = "open-meteo"
     ambiente_intervalo_s: int = 600
+    # notifier: conta de serviço do Firebase (FCM). Sem o arquivo, só registra em log o que
+    # enviaria (modo simulado, usado no CI e em quem não configurou o Firebase)
+    firebase_credenciais: str = "/run/secrets/ecopulse/firebase.json"

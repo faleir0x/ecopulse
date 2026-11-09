@@ -70,3 +70,17 @@ CREATE TABLE IF NOT EXISTS resolucoes (
     recebido_em   TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (ocorrencia_id, device_id)                -- um voto por aparelho
 );
+
+-- Aparelhos que recebem push remoto (FCM, serviço notifier). Posição arredondada a ~100 m;
+-- registros sem renovação há 7 dias deixam de receber e são apagados pelo notifier.
+CREATE TABLE IF NOT EXISTS aparelhos (
+    id             UUID PRIMARY KEY,                  -- id do aparelho (o mesmo dos relatos)
+    token          TEXT NOT NULL UNIQUE,              -- token FCM
+    geom           GEOGRAPHY(Point, 4326) NOT NULL,
+    raio_m         INTEGER NOT NULL CHECK (raio_m BETWEEN 100 AND 10000),
+    limiar         SMALLINT NOT NULL CHECK (limiar BETWEEN 0 AND 3),   -- nível mínimo (baixo=0)
+    tipos          TEXT[] NOT NULL,
+    silenciado_ate TIMESTAMPTZ,
+    atualizado_em  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_aparelhos_geom ON aparelhos USING GIST (geom);

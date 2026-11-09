@@ -16,3 +16,6 @@ services:
   realtime:
     <<: *imagem
     image: ghcr.io/faleir0x/ecopulse-realtime:${ECOPULSE_TAG:-latest}
+  notifier:
+    <<: *imagem
+    image: ghcr.io/faleir0x/ecopulse-notifier:${ECOPULSE_TAG:-latest}

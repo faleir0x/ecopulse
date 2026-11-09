@@ -270,6 +270,20 @@ services:
     ports:
       - "${REALTIME_PORT:-8002}:8000"
 
+  # Push remoto (FCM). Lê a conta de serviço do Firebase em secrets/firebase.json (arquivo 600
+  # do dono do repositório, por isso roda com o uid dele em vez do 10001 da imagem); sem o
+  # arquivo, roda em modo simulado e só registra no log o que enviaria.
+  notifier:
+    <<: *python-service
+    build:
+      context: ..
+      dockerfile: infra/docker/python.Dockerfile
+      args: { SERVICE: notifier }
+    command: ["python", "-m", "ecopulse_notifier"]
+    user: "${ECOPULSE_UID:-1000}"
+    volumes:
+      - ./secrets:/run/secrets/ecopulse:ro
+
   # Cloudflare Tunnel (só para testes fora da rede local): api.faleir0x.com → api:8000,
   # rt.faleir0x.com → realtime:8000. Sobe só com --profile tunel; o token fica no .env.
   cloudflared:

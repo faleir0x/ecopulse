@@ -39,6 +39,19 @@ class ResolucaoIn(BaseModel):
     registrado_em: datetime
 
 
+class AparelhoIn(BaseModel):
+    """Registro/renovação do aparelho para push remoto (PUT /v1/aparelhos/{id}). O app manda
+    de novo ao mudar de lugar (> 500 m), de ajustes ou de token, e pelo menos 1 vez por dia."""
+
+    token: str = Field(min_length=20, max_length=4096)
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+    raio_m: int = Field(ge=100, le=10_000)
+    limiar: Severidade
+    tipos: list[TipoRisco] = Field(max_length=len(TipoRisco))
+    silenciado_ate: datetime | None = None
+
+
 class SituacaoRelato(BaseModel):
     """Em qual ocorrência o relato do próprio aparelho entrou. Nunca expõe o device_id."""
 

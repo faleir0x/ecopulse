@@ -85,8 +85,6 @@ export type PassoGravidadeProps = {
   offline: boolean;
   midias: MidiaLocal[];
   nota: string;
-  notaAberta: boolean;
-  onToggleNota: () => void;
   onNota: (valor: string) => void;
   onAdicionarMidias: (novas: MidiaLocal[]) => void;
   onRemoverMidia: (indice: number) => void;
@@ -104,8 +102,6 @@ export function PassoGravidade({
   offline,
   midias,
   nota,
-  notaAberta,
-  onToggleNota,
   onNota,
   onAdicionarMidias,
   onRemoverMidia,
@@ -144,14 +140,12 @@ export function PassoGravidade({
 
       <MediaPicker
         midias={midias}
-        notaAberta={notaAberta}
-        onToggleNota={onToggleNota}
         onAdicionar={onAdicionarMidias}
         onRemover={onRemoverMidia}
         onAbrir={onAbrirMidia}
       />
 
-      {notaAberta ? <NoteField valor={nota} onMudar={onNota} /> : null}
+      <NoteField valor={nota} onMudar={onNota} />
 
       <View style={styles.rodape}>
         <Pressable

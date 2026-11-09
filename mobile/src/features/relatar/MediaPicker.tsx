@@ -1,32 +1,18 @@
 import * as ImagePicker from 'expo-image-picker';
 import * as Linking from 'expo-linking';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
-import Animated, {
-  Easing,
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
-} from 'react-native-reanimated';
 
 import { T } from '@/components';
 import type { MidiaLocal } from '@/data/outbox';
 import { Icon } from '@/icons/Icon';
 import type { NomeIcone } from '@/icons';
 import { useTema } from '@/theme/tema';
-import { espaco, movimento, raio, tamanho } from '@/theme/tokens';
+import { espaco, raio, tamanho } from '@/theme/tokens';
 
 import { MediaThumb } from './MediaThumb';
 
 export const MAX_MIDIAS = 3;
-
-const CURVA_ENTRADA = Easing.bezier(
-  movimento.curvas.out[0],
-  movimento.curvas.out[1],
-  movimento.curvas.out[2],
-  movimento.curvas.out[3],
-);
-const DESLOCAMENTO_ENTRADA = 6;
 
 type ErroMidia = 'camera' | 'galeria' | 'falha';
 
@@ -73,28 +59,6 @@ function BotaoExtra({
   );
 }
 
-/** Linha que entra com fade e leve subida; trocar a chave refaz a entrada (troca no lugar). */
-function LinhaAnimada({ children }: { children: ReactNode }) {
-  const { reduzirMovimento } = useTema();
-  const opacidade = useSharedValue(0);
-  const deslocamento = useSharedValue(reduzirMovimento ? 0 : DESLOCAMENTO_ENTRADA);
-
-  useEffect(() => {
-    const duracao = reduzirMovimento ? 150 : 200;
-    opacidade.value = withTiming(1, { duration: duracao, easing: CURVA_ENTRADA });
-    deslocamento.value = reduzirMovimento
-      ? 0
-      : withTiming(0, { duration: duracao, easing: CURVA_ENTRADA });
-  }, [reduzirMovimento, opacidade, deslocamento]);
-
-  const estiloEntrada = useAnimatedStyle(() => ({
-    opacity: opacidade.value,
-    transform: [{ translateY: deslocamento.value }],
-  }));
-
-  return <Animated.View style={[styles.linha, estiloEntrada]}>{children}</Animated.View>;
-}
-
 function LinhaErro({ erro }: { erro: ErroMidia }) {
   if (erro === 'falha') {
     return (
@@ -128,26 +92,13 @@ function converter(asset: ImagePicker.ImagePickerAsset): MidiaLocal {
 
 export type MediaPickerProps = {
   midias: MidiaLocal[];
-  notaAberta: boolean;
-  onToggleNota: () => void;
   onAdicionar: (novas: MidiaLocal[]) => void;
   onRemover: (indice: number) => void;
   onAbrir: (indice: number) => void;
 };
 
-export function MediaPicker({
-  midias,
-  notaAberta,
-  onToggleNota,
-  onAdicionar,
-  onRemover,
-  onAbrir,
-}: MediaPickerProps) {
-  const { cor } = useTema();
+export function MediaPicker({ midias, onAdicionar, onRemover, onAbrir }: MediaPickerProps) {
   const cheio = midias.length >= MAX_MIDIAS;
-  const rotuloFoto = midias.length > 0 ? `Foto · ${midias.length}/${MAX_MIDIAS}` : 'Foto';
-
-  const [opcoesAbertas, setOpcoesAbertas] = useState(false);
   const [erro, setErro] = useState<ErroMidia | null>(null);
 
   const escolher = async (origem: 'camera' | 'galeria') => {
@@ -183,7 +134,6 @@ export function MediaPicker({
               quality: 0.8,
             });
 
-      setOpcoesAbertas(false);
       if (resultado.canceled) {
         return;
       }
@@ -197,56 +147,24 @@ export function MediaPicker({
     }
   };
 
-  const alternarOpcoes = () => {
-    if (cheio) {
-      return;
-    }
-    setErro(null);
-    setOpcoesAbertas((aberta) => !aberta);
-  };
-
   return (
     <View style={styles.raiz}>
-      {/* "Foto" vira "Câmera · Galeria · ×" no mesmo lugar: a sheet não muda de altura */}
-      {opcoesAbertas ? (
-        <LinhaAnimada key="opcoes">
-          <BotaoExtra
-            icone="camera-minimalistic"
-            rotulo="Câmera"
-            ativo
-            onPress={() => void escolher('camera')}
-          />
-          <BotaoExtra
-            icone="gallery-minimalistic"
-            rotulo="Galeria"
-            ativo
-            onPress={() => void escolher('galeria')}
-          />
-          <Pressable
-            onPress={alternarOpcoes}
-            accessibilityRole="button"
-            accessibilityLabel="Fechar opções de foto"
-            style={({ pressed }) => [
-              styles.fechar,
-              { backgroundColor: cor.surfaceMuted, transform: [{ scale: pressed ? 0.95 : 1 }] },
-            ]}
-          >
-            <Icon name="close" tamanho={tamanho.iconSm} cor={cor.textSecondary} />
-          </Pressable>
-        </LinhaAnimada>
-      ) : (
-        <LinhaAnimada key="extras">
-          <BotaoExtra
-            icone="camera-minimalistic"
-            rotulo={rotuloFoto}
-            ativo={midias.length > 0}
-            expandido={false}
-            desabilitado={cheio}
-            onPress={alternarOpcoes}
-          />
-          <BotaoExtra icone="pen" rotulo="Detalhe" ativo={notaAberta} onPress={onToggleNota} />
-        </LinhaAnimada>
-      )}
+      <View style={styles.linha}>
+        <BotaoExtra
+          icone="camera-minimalistic"
+          rotulo="Câmera"
+          ativo={!cheio}
+          desabilitado={cheio}
+          onPress={() => void escolher('camera')}
+        />
+        <BotaoExtra
+          icone="gallery-minimalistic"
+          rotulo="Galeria"
+          ativo={!cheio}
+          desabilitado={cheio}
+          onPress={() => void escolher('galeria')}
+        />
+      </View>
 
       {erro ? <LinhaErro erro={erro} /> : null}
 
@@ -291,14 +209,6 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     flexShrink: 1,
     minWidth: 0,
-  },
-  fechar: {
-    width: tamanho.touch,
-    height: tamanho.touch,
-    borderRadius: tamanho.touch / 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
   },
   erro: {
     paddingHorizontal: espaco.xs,

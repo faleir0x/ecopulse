@@ -10,7 +10,12 @@ import { TemaProvider } from '@/theme/tema';
 import { MediaPicker } from './MediaPicker';
 import { ReportSheet } from './ReportSheet';
 
-const mockEstado = { online: true, pendentes: 0, enviando: false, ultimoEnvio: null as number | null };
+const mockEstado = {
+  online: true,
+  pendentes: 0,
+  enviando: false,
+  ultimoEnvio: null as number | null,
+};
 
 type Resultado = 'enviado' | 'na_fila' | 'rejeitado';
 const mockCriarPromessa = (resultado: Resultado) => {
@@ -93,7 +98,13 @@ jest.mock('react-native-reanimated', () => {
     withSpring: identidade,
     withDelay: (_atraso: number, valor: unknown) => valor,
     withRepeat: identidade,
-    Easing: { bezier: () => identidade, inOut: identidade, ease: identidade, out: identidade, cubic: identidade },
+    Easing: {
+      bezier: () => identidade,
+      inOut: identidade,
+      ease: identidade,
+      out: identidade,
+      cubic: identidade,
+    },
   };
 });
 
@@ -152,9 +163,7 @@ describe('ReportSheet', () => {
     await avancarParaGravidade(utilitarios);
 
     const enviar = utilitarios.getByLabelText('Enviar');
-    expect(enviar.props.accessibilityState).toEqual(
-      expect.objectContaining({ disabled: true }),
-    );
+    expect(enviar.props.accessibilityState).toEqual(expect.objectContaining({ disabled: true }));
 
     await fireEvent.press(enviar);
     expect(mockRelatar).not.toHaveBeenCalled();
@@ -208,7 +217,7 @@ describe('ReportSheet', () => {
     const utilitarios = await montarRelato();
     await avancarParaGravidade(utilitarios);
 
-    await fireEvent.press(utilitarios.getByLabelText('Detalhe'));
+    // A caixa de detalhe já vem aberta
     const campo = utilitarios.getByPlaceholderText('O que está acontecendo?');
 
     expect(utilitarios.getByText('0/140')).toBeTruthy();
@@ -224,14 +233,12 @@ describe('MediaPicker', () => {
     { uri: 'file://3.mp4', tipo: 'video' },
   ];
 
-  it('desabilita o botão de foto no limite de 3 mídias', async () => {
+  it('desabilita Câmera e Galeria no limite de 3 mídias', async () => {
     const onAdicionar = jest.fn();
-    const { getByText, getByLabelText } = await render(
+    const { getByLabelText } = await render(
       <TemaProvider inicial="escuro">
         <MediaPicker
           midias={midias}
-          notaAberta={false}
-          onToggleNota={jest.fn()}
           onAdicionar={onAdicionar}
           onRemover={jest.fn()}
           onAbrir={jest.fn()}
@@ -239,43 +246,19 @@ describe('MediaPicker', () => {
       </TemaProvider>,
     );
 
-    expect(getByText('Foto · 3/3')).toBeTruthy();
-    const botao = getByLabelText('Foto · 3/3');
-    expect(botao.props.accessibilityState).toEqual(
-      expect.objectContaining({ disabled: true }),
-    );
-
-    await fireEvent.press(botao);
+    for (const rotulo of ['Câmera', 'Galeria']) {
+      const botao = getByLabelText(rotulo);
+      expect(botao.props.accessibilityState).toEqual(expect.objectContaining({ disabled: true }));
+      await fireEvent.press(botao);
+    }
     expect(onAdicionar).not.toHaveBeenCalled();
   });
 
-  it('mostra "Foto · 2/3" abaixo do limite', async () => {
-    const { getByText, getByLabelText } = await render(
-      <TemaProvider inicial="escuro">
-        <MediaPicker
-          midias={midias.slice(0, 2)}
-          notaAberta={false}
-          onToggleNota={jest.fn()}
-          onAdicionar={jest.fn()}
-          onRemover={jest.fn()}
-          onAbrir={jest.fn()}
-        />
-      </TemaProvider>,
-    );
-
-    expect(getByText('Foto · 2/3')).toBeTruthy();
-    expect(getByLabelText('Foto · 2/3').props.accessibilityState).toEqual(
-      expect.objectContaining({ disabled: false }),
-    );
-  });
-
-  it('troca Foto por Câmera/Galeria no lugar e volta pelo ×', async () => {
+  it('mostra Câmera e Galeria direto, sem passo intermediário', async () => {
     const { getByLabelText, queryByLabelText } = await render(
       <TemaProvider inicial="escuro">
         <MediaPicker
           midias={[]}
-          notaAberta={false}
-          onToggleNota={jest.fn()}
           onAdicionar={jest.fn()}
           onRemover={jest.fn()}
           onAbrir={jest.fn()}
@@ -283,17 +266,12 @@ describe('MediaPicker', () => {
       </TemaProvider>,
     );
 
-    expect(queryByLabelText('Câmera')).toBeNull();
-
-    await fireEvent.press(getByLabelText('Foto'));
-    expect(getByLabelText('Câmera')).toBeTruthy();
+    expect(getByLabelText('Câmera').props.accessibilityState).toEqual(
+      expect.objectContaining({ disabled: false }),
+    );
     expect(getByLabelText('Galeria')).toBeTruthy();
-    // Troca no lugar: Foto e Detalhe saem enquanto as opções estão abertas
+    expect(queryByLabelText('Foto')).toBeNull();
     expect(queryByLabelText('Detalhe')).toBeNull();
-
-    await fireEvent.press(getByLabelText('Fechar opções de foto'));
-    expect(queryByLabelText('Câmera')).toBeNull();
-    expect(getByLabelText('Foto')).toBeTruthy();
   });
 
   it('mostra a linha de permissão negada sem diálogo nativo', async () => {
@@ -305,8 +283,6 @@ describe('MediaPicker', () => {
       <TemaProvider inicial="escuro">
         <MediaPicker
           midias={[]}
-          notaAberta={false}
-          onToggleNota={jest.fn()}
           onAdicionar={jest.fn()}
           onRemover={jest.fn()}
           onAbrir={jest.fn()}
@@ -314,7 +290,6 @@ describe('MediaPicker', () => {
       </TemaProvider>,
     );
 
-    await fireEvent.press(getByLabelText('Foto'));
     await fireEvent.press(getByLabelText('Câmera'));
 
     expect(await findByText(/Sem acesso à câmera/)).toBeTruthy();
@@ -330,8 +305,6 @@ describe('MediaPicker', () => {
       <TemaProvider inicial="escuro">
         <MediaPicker
           midias={[]}
-          notaAberta={false}
-          onToggleNota={jest.fn()}
           onAdicionar={jest.fn()}
           onRemover={jest.fn()}
           onAbrir={jest.fn()}
@@ -339,7 +312,6 @@ describe('MediaPicker', () => {
       </TemaProvider>,
     );
 
-    await fireEvent.press(getByLabelText('Foto'));
     await fireEvent.press(getByLabelText('Câmera'));
 
     expect(await findByText('Não abriu. Tente de novo.')).toBeTruthy();

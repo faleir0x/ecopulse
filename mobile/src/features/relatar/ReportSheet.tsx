@@ -64,7 +64,6 @@ export function ReportSheet() {
   const [severidade, setSeveridade] = useState<Severidade | null>(null);
   const [midias, setMidias] = useState<MidiaLocal[]>([]);
   const [nota, setNota] = useState('');
-  const [notaAberta, setNotaAberta] = useState(false);
   const [visualizando, setVisualizando] = useState<number | null>(null);
   const [sucesso, setSucesso] = useState<EstadoSucesso | null>(null);
   const [falha, setFalha] = useState<EstadoFalha | null>(null);
@@ -109,7 +108,6 @@ export function ReportSheet() {
     setSeveridade(null);
     setMidias([]);
     setNota('');
-    setNotaAberta(false);
     setVisualizando(null);
     setSucesso(null);
     setFalha(null);
@@ -398,8 +396,6 @@ export function ReportSheet() {
                       offline={!estado.online}
                       midias={midias}
                       nota={nota}
-                      notaAberta={notaAberta}
-                      onToggleNota={() => setNotaAberta((aberta) => !aberta)}
                       onNota={setNota}
                       onAdicionarMidias={adicionarMidias}
                       onRemoverMidia={removerMidia}

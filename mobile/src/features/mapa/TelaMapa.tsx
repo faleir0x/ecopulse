@@ -20,7 +20,13 @@ import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanima
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { OfflinePill, Pill, SegmentedFilter } from '@/components';
-import { ROTULO_TIPO, TIPOS_RISCO, type Ocorrencia, type TipoRisco } from '@/domain/tipos';
+import {
+  ROTULO_TIPO,
+  TIPOS_RISCO,
+  type CelulaAmbiente,
+  type Ocorrencia,
+  type TipoRisco,
+} from '@/domain/tipos';
 import { simularPercurso, ultimaPosicaoConhecida, useLocalizacao } from '@/features/localizacao';
 import { estiloMapa } from '@/features/mapa/estiloMapa';
 import { useConfirmar, useDetalhe, useOcorrencias, useResolver } from '@/features/ocorrencias';
@@ -38,7 +44,7 @@ import { useTema } from '@/theme/tema';
 import { espaco, sheet as tokensSheet, tamanho } from '@/theme/tokens';
 
 import { agrupar, type Grupo } from './agrupar';
-import { CamadaAmbiental } from './CamadaAmbiental';
+import { CamadaAmbiental, useSuperficie } from './CamadaAmbiental';
 import { ClusterMarker } from './ClusterMarker';
 import {
   CENTRO_SAO_PAULO,
@@ -62,6 +68,8 @@ import { useEndereco } from './useEndereco';
 import { UserMarker } from './UserMarker';
 
 const JANELA_DESFAZER_MS = 4000;
+// Referência estável enquanto a camada carrega (a superfície é memoizada pelas células)
+const SEM_CELULAS: CelulaAmbiente[] = [];
 
 /** Zoom ao seguir a rota: perto o bastante para ver a próxima esquina. */
 const ZOOM_SEGUINDO = 17;
@@ -121,6 +129,7 @@ export function TelaMapa() {
 
   const ocorrencias = useOcorrencias(bbox, filtro);
   const camadaAmbiente = useCamada(bbox, camada !== 'nenhuma');
+  const superficie = useSuperficie(camadaAmbiente.data ?? SEM_CELULAS, camada);
   const detalhe = useDetalhe(selecionadoId);
   const confirmar = useConfirmar(selecionadoId ?? -1);
   const endereco = useEndereco(
@@ -512,7 +521,7 @@ export function TelaMapa() {
         onPress={aoPressionarMapa}
         onPanDrag={cameraSegue ? () => setCameraSegue(false) : undefined}
       >
-        <CamadaAmbiental celulas={camadaAmbiente.data ?? []} camada={camada} />
+        <CamadaAmbiental superficie={superficie} />
 
         {temLocalizacao && localizacao.status === 'ok' ? (
           <>
@@ -614,7 +623,11 @@ export function TelaMapa() {
         ) : null}
         {camada !== 'nenhuma' && !modoRota ? (
           <View style={styles.legenda}>
-            <LegendaCamada camada={camada} carregando={camadaAmbiente.isPending} />
+            <LegendaCamada
+              camada={camada}
+              carregando={camadaAmbiente.isPending}
+              escala={superficie?.escala ?? null}
+            />
           </View>
         ) : null}
         {/* Procurando o GPS não é erro: só "Sem localização" quando negada/indisponível */}

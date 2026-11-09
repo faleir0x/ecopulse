@@ -1,9 +1,19 @@
+import { render } from '@testing-library/react-native';
+import type { ReactNode } from 'react';
+
 import type { CelulaAmbiente } from '@/domain/tipos';
-import { severidade } from '@/theme/tokens';
+import { TemaProvider } from '@/theme/tema';
 
-import { corDaCelula } from './CamadaAmbiental';
+import { CamadaAmbiental, useSuperficie } from './CamadaAmbiental';
+import type { Camada } from './useCamada';
 
-jest.mock('react-native-maps', () => ({ Polygon: () => null }));
+const overlays: { image: { uri: string }; bounds: unknown }[] = [];
+jest.mock('react-native-maps', () => ({
+  Overlay: (props: { image: { uri: string }; bounds: unknown }) => {
+    overlays.push(props);
+    return null;
+  },
+}));
 
 jest.mock('expo-sqlite/kv-store', () => ({
   __esModule: true,
@@ -27,38 +37,45 @@ jest.mock('react-native-reanimated', () => {
   };
 });
 
-const SEV = severidade.escuro;
-
 const CELULA: CelulaAmbiente = {
   geohash: '6gyf4',
   lat_min: -23.55,
   lon_min: -46.65,
   lat_max: -23.5,
   lon_max: -46.6,
-  temperatura: 10,
+  temperatura: 24,
   aqi: 35,
   medido_em: '2026-11-08T12:00:00Z',
 };
 
-describe('corDaCelula', () => {
-  it('usa a escala OKLab de temperatura com 30% de opacidade', () => {
-    expect(corDaCelula({ ...CELULA, temperatura: 10 }, 'calor', SEV)).toBe(
-      'rgba(38,139,182,0.3)',
-    );
-    expect(corDaCelula({ ...CELULA, temperatura: 37 }, 'calor', SEV)).toBe(
-      'rgba(211,59,54,0.3)',
-    );
+function ComSuperficie({ celulas, camada }: { celulas: CelulaAmbiente[]; camada: Camada }) {
+  return <CamadaAmbiental superficie={useSuperficie(celulas, camada)} />;
+}
+
+function comTema(filho: ReactNode) {
+  return render(<TemaProvider inicial="escuro">{filho}</TemaProvider>);
+}
+
+beforeEach(() => {
+  overlays.length = 0;
+});
+
+describe('CamadaAmbiental', () => {
+  it('estica a imagem da superfície sobre as células', async () => {
+    await comTema(<ComSuperficie celulas={[CELULA]} camada="calor" />);
+
+    expect(overlays).toHaveLength(1);
+    expect(overlays[0]?.image.uri).toMatch(/^data:image\/png;base64,/);
+    expect(overlays[0]?.bounds).toEqual([
+      [-23.5, -46.6],
+      [-23.55, -46.65],
+    ]);
   });
 
-  it('usa a cor do nível do AQI com 30% de opacidade', () => {
-    expect(corDaCelula({ ...CELULA, aqi: 35 }, 'ar', SEV)).toBe('rgba(173,164,144,0.3)');
-    expect(corDaCelula({ ...CELULA, aqi: 120 }, 'ar', SEV)).toBe('rgba(240,137,68,0.3)');
-    expect(corDaCelula({ ...CELULA, aqi: 250 }, 'ar', SEV)).toBe('rgba(247,94,84,0.3)');
-  });
+  it('não desenha com a camada nenhuma nem sem leitura', async () => {
+    await comTema(<ComSuperficie celulas={[CELULA]} camada="nenhuma" />);
+    await comTema(<ComSuperficie celulas={[{ ...CELULA, aqi: null }]} camada="ar" />);
 
-  it('devolve null sem leitura para a camada', () => {
-    expect(corDaCelula({ ...CELULA, temperatura: null }, 'calor', SEV)).toBeNull();
-    expect(corDaCelula({ ...CELULA, aqi: null }, 'ar', SEV)).toBeNull();
-    expect(corDaCelula(CELULA, 'nenhuma', SEV)).toBeNull();
+    expect(overlays).toHaveLength(0);
   });
 });

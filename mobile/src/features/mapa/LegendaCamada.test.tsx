@@ -26,19 +26,29 @@ jest.mock('react-native-reanimated', () => {
   };
 });
 
-function montar(camada: 'nenhuma' | 'calor' | 'ar', carregando = false) {
+function montar(
+  camada: 'nenhuma' | 'calor' | 'ar',
+  carregando = false,
+  escala: [number, number] | null = [22.7, 24.7],
+) {
   return render(
     <TemaProvider inicial="escuro">
-      <LegendaCamada camada={camada} carregando={carregando} />
+      <LegendaCamada camada={camada} carregando={carregando} escala={escala} />
     </TemaProvider>,
   );
 }
 
 describe('LegendaCamada', () => {
-  it('mostra o gradiente e os extremos na camada de calor', async () => {
+  it('mostra as pontas da escala visível, em °C, na camada de calor', async () => {
     const { getByText } = await montar('calor');
 
-    expect(getByText('10° · 36°')).toBeTruthy();
+    expect(getByText('23° · 25°')).toBeTruthy();
+  });
+
+  it('espera a escala no calor antes de mostrar valores', async () => {
+    const { getByText } = await montar('calor', false, null);
+
+    expect(getByText('Carregando camada…')).toBeTruthy();
   });
 
   it('mostra os quatro níveis na camada de ar', async () => {
@@ -52,7 +62,7 @@ describe('LegendaCamada', () => {
     const { getByText, queryByText } = await montar('calor', true);
 
     expect(getByText('Carregando camada…')).toBeTruthy();
-    expect(queryByText('10° · 36°')).toBeNull();
+    expect(queryByText('23° · 25°')).toBeNull();
   });
 
   it('não aparece com a camada nenhuma', async () => {

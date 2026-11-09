@@ -12,22 +12,25 @@ import type { Camada } from './useCamada';
 export type LegendaCamadaProps = {
   camada: Camada;
   carregando: boolean;
+  /** °C das pontas da escala do calor (relativa ao que está visível). */
+  escala: [number, number] | null;
 };
 
+const PRIMEIRA_PARADA = escalaTemperatura.paradas[0]![0];
+const ULTIMA_PARADA = escalaTemperatura.paradas[escalaTemperatura.paradas.length - 1]![0];
+
 /** Legenda compacta da camada ativa (temperatura ou AQI). Some com a camada "nenhuma". */
-export function LegendaCamada({ camada, carregando }: LegendaCamadaProps) {
+export function LegendaCamada({ camada, carregando, escala }: LegendaCamadaProps) {
   const { cor, sev } = useTema();
 
   if (camada === 'nenhuma') return null;
 
-  const gradiente = gradienteTemperatura(
-    escalaTemperatura.faixa[0],
-    escalaTemperatura.faixa[1],
-  );
+  // A superfície usa a paleta inteira entre as pontas da escala visível
+  const gradiente = gradienteTemperatura(PRIMEIRA_PARADA, ULTIMA_PARADA);
 
   return (
     <View style={[styles.pill, { backgroundColor: cor.surfaceMuted }]}>
-      {carregando ? (
+      {carregando || (camada === 'calor' && !escala) ? (
         <T estilo="caption" cor="textSecondary" numberOfLines={1}>
           Carregando camada…
         </T>
@@ -43,7 +46,7 @@ export function LegendaCamada({ camada, carregando }: LegendaCamadaProps) {
             />
           </View>
           <T estilo="caption" cor="textSecondary" tabular numberOfLines={1}>
-            10° · 36°
+            {escala ? `${Math.round(escala[0])}° · ${Math.round(escala[1])}°` : ''}
           </T>
         </View>
       ) : (

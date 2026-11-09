@@ -386,6 +386,7 @@ export function ReportSheet() {
                     accessibilityElementsHidden={passo !== 2}
                   >
                     <PassoGravidade
+                      visivel={passo === 2}
                       tipo={tipo}
                       severidade={severidade}
                       onEscolher={setSeveridade}

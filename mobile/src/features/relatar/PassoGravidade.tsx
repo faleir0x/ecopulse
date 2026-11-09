@@ -75,6 +75,9 @@ function TileSeveridade({ severidade, ativo, onPress }: TileSeveridadeProps) {
 }
 
 export type PassoGravidadeProps = {
+  /** Passo na tela. Fora dele a caixa de detalhe não é montada: o Android daria foco ao
+   * primeiro campo de texto da janela ao abrir a sheet (teclado aberto no passo 1). */
+  visivel: boolean;
   tipo: TipoRisco | null;
   severidade: Severidade | null;
   onEscolher: (severidade: Severidade) => void;
@@ -92,6 +95,7 @@ export type PassoGravidadeProps = {
 };
 
 export function PassoGravidade({
+  visivel,
   tipo,
   severidade,
   onEscolher,
@@ -145,7 +149,7 @@ export function PassoGravidade({
         onAbrir={onAbrirMidia}
       />
 
-      <NoteField valor={nota} onMudar={onNota} />
+      {visivel ? <NoteField valor={nota} onMudar={onNota} /> : null}
 
       <View style={styles.rodape}>
         <Pressable

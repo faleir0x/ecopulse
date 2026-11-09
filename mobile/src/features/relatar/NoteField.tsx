@@ -47,7 +47,6 @@ export function NoteField({ valor, onMudar }: NoteFieldProps) {
         onChangeText={onMudar}
         maxLength={MAX_NOTA}
         multiline
-        autoFocus
         placeholder="O que está acontecendo?"
         placeholderTextColor={cor.textTertiary}
         accessibilityLabel="Detalhe do relato"

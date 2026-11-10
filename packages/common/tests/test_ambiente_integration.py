@@ -26,7 +26,7 @@ async def test_interesse_e_coleta() -> None:
 
 
 @pytest.mark.integration
-async def test_interesse_recusa_celula_nova_com_conjunto_cheio(
+async def test_interesse_cheio_descarta_a_celula_pedida_ha_mais_tempo(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     redis: RedisCluster = create_cluster(Settings())
@@ -36,13 +36,20 @@ async def test_interesse_recusa_celula_nova_com_conjunto_cheio(
         agora = 1_800_000_000.0
 
         assert await ambiente.registrar_interesse(redis, "6gycf", agora)
-        assert await ambiente.registrar_interesse(redis, "6gyce", agora)
-        assert not await ambiente.registrar_interesse(redis, "6gycg", agora)
-        assert await redis.zscore(ambiente.CHAVE_INTERESSE, "6gycg") is None
+        assert await ambiente.registrar_interesse(redis, "6gyce", agora + 1)
+        await ambiente.marcar_coletada(redis, "6gycf", agora)
 
-        # Célula já registrada continua sendo atualizada mesmo com o conjunto cheio.
-        assert await ambiente.registrar_interesse(redis, "6gycf", agora + 5)
-        assert await redis.zscore(ambiente.CHAVE_INTERESSE, "6gycf") == pytest.approx(agora + 5)
+        # Conjunto cheio: a nova entra e a pedida há mais tempo sai (também das coletadas)
+        assert await ambiente.registrar_interesse(redis, "6gycg", agora + 2)
+        assert await redis.zscore(ambiente.CHAVE_INTERESSE, "6gycg") is not None
+        assert await redis.zscore(ambiente.CHAVE_INTERESSE, "6gycf") is None
+        assert await redis.hget(ambiente.CHAVE_COLETADO, "6gycf") is None
+        assert await redis.zcard(ambiente.CHAVE_INTERESSE) == 2
+
+        # Célula já registrada só atualiza o horário, sem descartar ninguém
+        assert await ambiente.registrar_interesse(redis, "6gyce", agora + 5)
+        assert await redis.zscore(ambiente.CHAVE_INTERESSE, "6gyce") == pytest.approx(agora + 5)
+        assert await redis.zcard(ambiente.CHAVE_INTERESSE) == 2
     finally:
         await redis.delete(ambiente.CHAVE_INTERESSE, ambiente.CHAVE_COLETADO)
         await redis.aclose()

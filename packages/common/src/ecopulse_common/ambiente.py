@@ -16,14 +16,18 @@ MAX_CELULAS_INTERESSE = 400
 async def registrar_interesse(redis: RedisCluster, geohash5: str, agora_s: float) -> bool:
     """ZADD com o horário do pedido (atualiza o score se já existir).
 
-    Recusa célula nova quando o conjunto já tem MAX_CELULAS_INTERESSE membros, para um cliente
-    não arrastar o mapa pelo mundo e inflar a coleta. Célula já registrada continua atualizando.
+    O conjunto tem no máximo MAX_CELULAS_INTERESSE células (teto da cota da Open-Meteo): uma
+    célula nova num conjunto cheio entra no lugar da pedida há mais tempo (ZPOPMIN), que sai
+    também do hash de coletadas. Assim a camada nunca para de carregar — antes, com o conjunto
+    cheio, células novas eram recusadas por até 24 h. Sempre True (mantido por compatibilidade).
     """
-    if (
-        await redis.zscore(CHAVE_INTERESSE, geohash5) is None
-        and await redis.zcard(CHAVE_INTERESSE) >= MAX_CELULAS_INTERESSE
-    ):
-        return False
+    if await redis.zscore(CHAVE_INTERESSE, geohash5) is None:
+        excesso = await redis.zcard(CHAVE_INTERESSE) - MAX_CELULAS_INTERESSE + 1
+        if excesso > 0:
+            expulsas = await redis.zpopmin(CHAVE_INTERESSE, excesso)
+            celulas = [str(par[0]) for par in expulsas]  # (membro, score)
+            if celulas:
+                await redis.hdel(CHAVE_COLETADO, *celulas)
     await redis.zadd(CHAVE_INTERESSE, {geohash5: agora_s})
     return True
 

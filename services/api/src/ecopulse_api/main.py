@@ -309,11 +309,11 @@ async def ler_camada(
     bbox: Annotated[str, Query(description="min_lon,min_lat,max_lon,max_lat")],
     limitador: Annotated[Limitador, Depends(limitador)],
 ) -> list[CelulaAmbiente]:
-    """Última leitura das células geohash5 do retângulo visível do mapa. Em áreas grandes a
-    amostra vira uma grade regular de até MAX_CELULAS (a superfície do app interpola entre os
-    centros). Registra interesse em todas as células amostradas (o environment coleta as que
-    faltam em até 30 s) e devolve só as que já têm leitura. O header X-Celulas-Pendentes diz
-    quantas células amostradas ainda não têm leitura (o app pode pedir de novo mais cedo)."""
+    """Última leitura ambiental do retângulo visível do mapa, em até MAX_CELULAS células cuja
+    precisão acompanha o zoom (leitura.celulas_da_camada). Registra interesse nos geohash5
+    das leituras (o environment coleta os que faltam em segundos) e devolve só as células que
+    já têm leitura. O header X-Celulas-Pendentes diz quantas ainda não têm (o app pede de novo
+    mais cedo)."""
     ip = _ip_cliente(request)
     _exigir_limite(
         await limitador.consumir("ambiente", ip),
@@ -322,24 +322,21 @@ async def ler_camada(
     )
     try:
         min_lon, min_lat, max_lon, max_lat = (float(valor) for valor in bbox.split(","))
-        celulas = leitura.celulas_amostradas_do_bbox(min_lon, min_lat, max_lon, max_lat)
+        pares = leitura.celulas_da_camada(min_lon, min_lat, max_lon, max_lat)
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, f"bbox inválido: {exc}") from exc
 
     agora = time.time()
-    for celula in celulas:
+    for _, geohash5 in pares:
         try:
-            aceita = await registrar_interesse(_redis(request), celula, agora)
+            await registrar_interesse(_redis(request), geohash5, agora)
         except RedisError:
             log.warning("falha ao registrar interesse da camada")
             break
-        if not aceita:
-            log.info("limite de células de interesse atingido")
-            break
 
-    leituras = await leitura.leituras_das_celulas(_pool(request), _redis(request), celulas)
+    leituras = await leitura.leituras_das_celulas(_pool(request), _redis(request), pares)
     respondidas = {item.geohash for item in leituras}
-    pendentes = sum(1 for celula in celulas if celula not in respondidas)
+    pendentes = sum(1 for celula, _ in pares if celula not in respondidas)
     response.headers["X-Celulas-Pendentes"] = str(pendentes)
     return leituras
 

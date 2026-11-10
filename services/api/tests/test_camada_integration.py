@@ -129,7 +129,7 @@ async def test_camada_bbox_grande_amostra_em_vez_de_pedir_aproximar(
     cliente: TestClient, redis: RedisCluster
 ) -> None:
     bbox = (-180.0, -90.0, 180.0, 90.0)
-    celulas = leitura.celulas_amostradas_do_bbox(*bbox)
+    celulas = [geohash5 for _, geohash5 in leitura.celulas_da_camada(*bbox)]
     try:
         resposta = cliente.get("/v1/ambiente/camada", params={"bbox": "-180,-90,180,90"})
 

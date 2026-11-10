@@ -61,9 +61,13 @@ def nota_publica(descricao: str | None, confirmacoes: int) -> str | None:
 
 
 def _faixa_de_celulas(
-    min_lon: float, min_lat: float, max_lon: float, max_lat: float
+    min_lon: float,
+    min_lat: float,
+    max_lon: float,
+    max_lat: float,
+    precisao: int = geohash.PARTITION_PRECISION,
 ) -> tuple[int, int, int, int, float, float]:
-    """Valida o bbox e devolve (i0, i1, j0, j1, largura, altura) da grade geohash5.
+    """Valida o bbox e devolve (i0, i1, j0, j1, largura, altura) da grade geohash `precisao`.
 
     ValueError se as coordenadas não forem finitas ou estiverem fora do intervalo, se min > max,
     ou se o bbox cruzar o antimeridiano (não suportado).
@@ -81,7 +85,7 @@ def _faixa_de_celulas(
         raise ValueError("latitude mínima maior que a máxima")
 
     lat_min_celula, lon_min_celula, lat_max_celula, lon_max_celula = geohash.decode_bbox(
-        geohash.encode(0.0, 0.0, geohash.PARTITION_PRECISION)
+        geohash.encode(0.0, 0.0, precisao)
     )
     largura = lon_max_celula - lon_min_celula
     altura = lat_max_celula - lat_min_celula
@@ -106,15 +110,21 @@ def _faixa_de_celulas(
 
 
 def _celulas_da_faixa(
-    i0: int, i1: int, j0: int, j1: int, largura: float, altura: float
+    i0: int,
+    i1: int,
+    j0: int,
+    j1: int,
+    largura: float,
+    altura: float,
+    precisao: int = geohash.PARTITION_PRECISION,
 ) -> list[str]:
-    """Geohash5 dos centros de todas as células da faixa, linha a linha, sem repetição."""
+    """Geohash `precisao` dos centros de todas as células da faixa, linha a linha."""
     celulas: list[str] = []
     for j in range(j0, j1 + 1):
         lat = -90.0 + (j + 0.5) * altura
         for i in range(i0, i1 + 1):
             lon = -180.0 + (i + 0.5) * largura
-            celulas.append(geohash.encode(lat, lon, geohash.PARTITION_PRECISION))
+            celulas.append(geohash.encode(lat, lon, precisao))
     return celulas
 
 
@@ -136,60 +146,38 @@ def celulas_do_bbox(min_lon: float, min_lat: float, max_lon: float, max_lat: flo
     return _celulas_da_faixa(i0, i1, j0, j1, largura, altura)
 
 
-def _indices_amostrados(inicio: int, fim: int, passo: int) -> range:
-    """Índices de `inicio` a `fim` a cada `passo`, começando no centro do primeiro bloco.
-
-    Se `passo // 2` passar do fim (faixa mais estreita que o passo), usa o índice central da
-    faixa para garantir ao menos uma célula naquela direção.
-    """
-    deslocamento = passo // 2
-    if inicio + deslocamento > fim:
-        deslocamento = (fim - inicio) // 2
-    return range(inicio + deslocamento, fim + 1, passo)
-
-
-def celulas_amostradas_do_bbox(
+def celulas_da_camada(
     min_lon: float,
     min_lat: float,
     max_lon: float,
     max_lat: float,
     maximo: int = MAX_CELULAS,
-) -> list[str]:
-    """Até `maximo` células geohash5 amostradas numa grade regular sobre o bbox.
+) -> list[tuple[str, str]]:
+    """Células da camada ambiental para o bbox: pares (célula exibida, geohash5 da leitura).
 
-    A camada ambiental não pode pedir uma célula por ponto visível: a Open-Meteo tem cota de
-    chamadas e o app interpola a superfície entre os centros recebidos. Quando a área passa de
-    `maximo` células, percorre a mesma grade de `celulas_do_bbox` com passo inteiro
-    k = ceil(sqrt(n_lon * n_lat / maximo)), começando em k // 2 para centralizar a amostra, e
-    aumenta k até a amostra caber. Sem passar do máximo devolve exatamente a grade completa
-    (igual a `celulas_do_bbox`). Sem repetição, ordem estável. ValueError nas mesmas condições
-    de `celulas_do_bbox` e se `maximo` não for positivo.
+    A precisão acompanha o zoom: a maior (5 = ~5 km, ruas) cuja grade cobre o bbox com até
+    `maximo` células; em zoom de cidade cai para 4 (~39 × 20 km), de estado para 3 (~156 km)
+    e assim por diante. Cada célula exibida usa a leitura do geohash5 do SEU centro, então
+    arrastar o mapa reaproveita as mesmas células (e as mesmas coletas na Open-Meteo) em vez de
+    amostrar células novas a cada movimento — antes, isso enchia o conjunto de interesse e a
+    camada parava de carregar. ValueError nas mesmas condições de `celulas_do_bbox`.
     """
     if maximo < 1:
         raise ValueError("máximo de células deve ser positivo")
-
-    i0, i1, j0, j1, largura, altura = _faixa_de_celulas(min_lon, min_lat, max_lon, max_lat)
-    n_lon = i1 - i0 + 1
-    n_lat = j1 - j0 + 1
-
-    if n_lon * n_lat <= maximo:
-        return _celulas_da_faixa(i0, i1, j0, j1, largura, altura)
-
-    passo = math.ceil(math.sqrt(n_lon * n_lat / maximo))
-    while True:
-        indices_lon = _indices_amostrados(i0, i1, passo)
-        indices_lat = _indices_amostrados(j0, j1, passo)
-        if len(indices_lon) * len(indices_lat) <= maximo:
+    for precisao in range(geohash.PARTITION_PRECISION, 0, -1):
+        i0, i1, j0, j1, largura, altura = _faixa_de_celulas(
+            min_lon, min_lat, max_lon, max_lat, precisao
+        )
+        if (i1 - i0 + 1) * (j1 - j0 + 1) <= maximo or precisao == 1:
             break
-        passo += 1
-
-    celulas: list[str] = []
-    for j in indices_lat:
-        lat = -90.0 + (j + 0.5) * altura
-        for i in indices_lon:
-            lon = -180.0 + (i + 0.5) * largura
-            celulas.append(geohash.encode(lat, lon, geohash.PARTITION_PRECISION))
-    return celulas
+    pares: list[tuple[str, str]] = []
+    for celula in _celulas_da_faixa(i0, i1, j0, j1, largura, altura, precisao):
+        lat_min, lon_min, lat_max, lon_max = geohash.decode_bbox(celula)
+        centro = geohash.encode(
+            (lat_min + lat_max) / 2, (lon_min + lon_max) / 2, geohash.PARTITION_PRECISION
+        )
+        pares.append((celula, centro))
+    return pares
 
 
 def _ocorrencia_da_linha(linha: asyncpg.Record) -> OcorrenciaPayload:
@@ -447,13 +435,14 @@ async def ultima_leitura(
 
 
 async def leituras_das_celulas(
-    pool: asyncpg.Pool, redis: RedisCluster, celulas: list[str]
+    pool: asyncpg.Pool, redis: RedisCluster, pares: list[tuple[str, str]]
 ) -> list[CelulaAmbiente]:
-    """Uma `CelulaAmbiente` por célula que já tem leitura; células sem leitura ficam de fora.
+    """Uma `CelulaAmbiente` por par (célula exibida, geohash5 da leitura) que já tem leitura,
+    com o retângulo da célula exibida e os valores da leitura; sem leitura, fica de fora.
     Cada consulta passa pelo cache-aside de `ultima_leitura`."""
     resultado: list[CelulaAmbiente] = []
-    for celula in celulas:
-        leitura = await ultima_leitura(pool, redis, celula)
+    for celula, geohash5 in pares:
+        leitura = await ultima_leitura(pool, redis, geohash5)
         if leitura is None:
             continue
         lat_min, lon_min, lat_max, lon_max = geohash.decode_bbox(celula)

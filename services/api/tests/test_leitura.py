@@ -122,7 +122,7 @@ def test_bbox_de_um_ponto_retorna_uma_celula() -> None:
     assert celulas == [geohash.encode(LATITUDE, LONGITUDE, geohash.PARTITION_PRECISION)]
 
 
-def test_amostragem_devolve_a_grade_completa_quando_cabe() -> None:
+def test_camada_em_zoom_de_rua_e_a_grade_geohash5_completa() -> None:
     celula = geohash.encode(LATITUDE, LONGITUDE, geohash.PARTITION_PRECISION)
     norte, nordeste, leste = geohash.neighbors(celula)[:3]
     caixas = [geohash.decode_bbox(item) for item in (celula, norte, nordeste, leste)]
@@ -133,30 +133,38 @@ def test_amostragem_devolve_a_grade_completa_quando_cabe() -> None:
         max(caixa[2] for caixa in caixas),
     )
 
-    assert leitura.celulas_amostradas_do_bbox(*bbox) == leitura.celulas_do_bbox(*bbox)
+    pares = leitura.celulas_da_camada(*bbox)
+
+    assert [exibida for exibida, _ in pares] == leitura.celulas_do_bbox(*bbox)
+    assert all(exibida == leitura_ for exibida, leitura_ in pares)
 
 
-def test_amostragem_limita_e_espalha_pelo_bbox_grande() -> None:
-    # Estado de São Paulo inteiro: milhares de células na grade completa.
-    min_lon, min_lat, max_lon, max_lat = -53.2, -25.4, -44.1, -19.7
+def test_camada_em_zoom_de_estado_usa_celulas_grossas() -> None:
+    # Estado de São Paulo inteiro: milhares de células geohash5
+    pares = leitura.celulas_da_camada(-53.2, -25.4, -44.1, -19.7)
 
-    celulas = leitura.celulas_amostradas_do_bbox(min_lon, min_lat, max_lon, max_lat)
-
-    assert 0 < len(celulas) <= leitura.MAX_CELULAS
-    assert len(celulas) == len(set(celulas))
-
-    meio_lon = (min_lon + max_lon) / 2
-    meio_lat = (min_lat + max_lat) / 2
-    quadrantes = {
-        (lat >= meio_lat, lon >= meio_lon) for lat, lon in (_centro(celula) for celula in celulas)
-    }
-    assert quadrantes == {(False, False), (False, True), (True, False), (True, True)}
+    assert 0 < len(pares) <= leitura.MAX_CELULAS
+    assert {len(exibida) for exibida, _ in pares} == {3}
+    for exibida, geohash5 in pares:
+        assert len(geohash5) == geohash.PARTITION_PRECISION
+        # A leitura vem do centro da célula exibida
+        assert geohash5.startswith(exibida)
 
 
-def test_amostragem_respeita_maximo_informado() -> None:
-    celulas = leitura.celulas_amostradas_do_bbox(-53.2, -25.4, -44.1, -19.7, maximo=10)
+def test_arrastar_o_mapa_reaproveita_as_mesmas_celulas() -> None:
+    # Antes a amostra acompanhava a tela e cada movimento pedia células novas
+    antes = dict(leitura.celulas_da_camada(-53.2, -25.4, -44.1, -19.7))
+    depois = dict(leitura.celulas_da_camada(-52.9, -25.1, -43.8, -19.4))
 
-    assert 0 < len(celulas) <= 10
+    comuns = antes.keys() & depois.keys()
+    assert comuns
+    assert all(antes[celula] == depois[celula] for celula in comuns)
+
+
+def test_camada_respeita_maximo_informado() -> None:
+    pares = leitura.celulas_da_camada(-53.2, -25.4, -44.1, -19.7, maximo=10)
+
+    assert 0 < len(pares) <= 10
 
 
 @pytest.mark.parametrize(
@@ -169,16 +177,14 @@ def test_amostragem_respeita_maximo_informado() -> None:
         (0.0, -91.0, 1.0, 0.0),  # latitude fora do intervalo
     ],
 )
-def test_amostragem_valida_bbox(
-    min_lon: float, min_lat: float, max_lon: float, max_lat: float
-) -> None:
+def test_camada_valida_bbox(min_lon: float, min_lat: float, max_lon: float, max_lat: float) -> None:
     with pytest.raises(ValueError):
-        leitura.celulas_amostradas_do_bbox(min_lon, min_lat, max_lon, max_lat)
+        leitura.celulas_da_camada(min_lon, min_lat, max_lon, max_lat)
 
 
-def test_amostragem_exige_maximo_positivo() -> None:
+def test_camada_exige_maximo_positivo() -> None:
     with pytest.raises(ValueError):
-        leitura.celulas_amostradas_do_bbox(LONGITUDE, LATITUDE, LONGITUDE, LATITUDE, maximo=0)
+        leitura.celulas_da_camada(LONGITUDE, LATITUDE, LONGITUDE, LATITUDE, maximo=0)
 
 
 @pytest.mark.parametrize(

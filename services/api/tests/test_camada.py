@@ -12,8 +12,8 @@ from ecopulse_api.schemas import CelulaAmbiente
 def test_camada_informa_celulas_pendentes(
     monkeypatch: pytest.MonkeyPatch, limitador_falso: Any
 ) -> None:
-    def celulas(*_: Any, **__: Any) -> list[str]:
-        return ["eycs2", "eycs3"]
+    def celulas(*_: Any, **__: Any) -> list[tuple[str, str]]:
+        return [("eycs2", "eycs2"), ("eycs3", "eycs3")]
 
     async def leituras(*_: Any, **__: Any) -> list[CelulaAmbiente]:
         return [
@@ -32,7 +32,7 @@ def test_camada_informa_celulas_pendentes(
     async def interesse(*_: Any, **__: Any) -> bool:
         return True
 
-    monkeypatch.setattr(leitura, "celulas_amostradas_do_bbox", celulas)
+    monkeypatch.setattr(leitura, "celulas_da_camada", celulas)
     monkeypatch.setattr(leitura, "leituras_das_celulas", leituras)
     monkeypatch.setattr("ecopulse_api.main.registrar_interesse", interesse)
     main.app.state.pool = MagicMock()

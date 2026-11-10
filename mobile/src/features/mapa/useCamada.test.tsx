@@ -81,4 +81,27 @@ describe('useCamada', () => {
     expect(intervalo?.({ state: { data: { pendentes: 3 } } })).toBe(5_000);
     expect(intervalo?.({ state: { data: { pendentes: 0 } } })).toBe(60_000);
   });
+
+  it('mantém a última camada boa quando o pedido da área nova falha', async () => {
+    lerCamadaMock
+      .mockResolvedValueOnce({ celulas: [CELULA], pendentes: 0 })
+      .mockRejectedValue(new Error('rede'));
+    const cliente = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: Infinity } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={cliente}>{children}</QueryClientProvider>
+    );
+    const outra: Bbox = { latMin: -23.0, lonMin: -47.0, latMax: -22.0, lonMax: -46.0 };
+    const { result, rerender } = await renderHook(
+      ({ bbox }: { bbox: Bbox }) => useCamada(bbox, true),
+      { wrapper, initialProps: { bbox: BBOX } },
+    );
+    await waitFor(() => expect(result.current.data).toEqual([CELULA]));
+
+    await rerender({ bbox: outra });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+
+    expect(result.current.data).toEqual([CELULA]);
+  });
 });

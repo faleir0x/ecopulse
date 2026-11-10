@@ -53,17 +53,32 @@ class RedisFalso:
 
 
 class EnviadorFalso:
-    def __init__(self, erros: dict[str, list[Exception | None]] | None = None) -> None:
+    def __init__(
+        self,
+        erros: dict[str, list[Exception | None]] | None = None,
+        *,
+        atraso: float = 0.0,
+    ) -> None:
         self.mensagens: list[dict[str, Any]] = []
+        self.em_andamento = 0
+        self.pico = 0
         self._erros = {token: list(fila) for token, fila in (erros or {}).items()}
+        self._atraso = atraso
 
     async def enviar(self, mensagem_fcm: dict[str, Any]) -> None:
-        fila = self._erros.get(str(mensagem_fcm["token"]))
-        if fila:
-            erro = fila.pop(0)
-            if erro is not None:
-                raise erro
-        self.mensagens.append(mensagem_fcm)
+        self.em_andamento += 1
+        self.pico = max(self.pico, self.em_andamento)
+        try:
+            if self._atraso:
+                await asyncio.sleep(self._atraso)
+            fila = self._erros.get(str(mensagem_fcm["token"]))
+            if fila:
+                erro = fila.pop(0)
+                if erro is not None:
+                    raise erro
+            self.mensagens.append(mensagem_fcm)
+        finally:
+            self.em_andamento -= 1
 
 
 @pytest.fixture
@@ -164,6 +179,22 @@ async def test_envia_para_cada_destino(
     assert set(redis.dados) == {_chave(d) for d in itens}
     assert removidos == []
     assert esperas == []
+
+
+async def test_envios_simultaneos_limitados(monkeypatch: pytest.MonkeyPatch) -> None:
+    itens = [_destino() for _ in range(30)]
+    _destinos(monkeypatch, itens)
+    _remover(monkeypatch)
+    redis = RedisFalso()
+    enviador = EnviadorFalso(atraso=0.01)
+
+    enviados = await servico.notificar(
+        _envelope(), POOL, cast(RedisCluster, redis), enviador, AGORA
+    )
+
+    assert enviados == 30
+    assert len(enviador.mensagens) == 30
+    assert enviador.pico == servico.ENVIOS_SIMULTANEOS
 
 
 async def test_mesma_severidade_nao_repete(
@@ -292,6 +323,24 @@ async def test_token_invalido_remove_aparelho_e_marca(
     assert esperas == []
 
 
+async def test_invalid_argument_de_token_remove_aparelho(
+    monkeypatch: pytest.MonkeyPatch, esperas: list[float]
+) -> None:
+    destino = _destino()
+    _destinos(monkeypatch, [destino])
+    removidos = _remover(monkeypatch)
+    redis = RedisFalso()
+    enviador = EnviadorFalso({destino.token: [TokenInvalido("INVALID_ARGUMENT")]})
+
+    enviados = await servico.notificar(
+        _envelope(), POOL, cast(RedisCluster, redis), enviador, AGORA
+    )
+
+    assert enviados == 0
+    assert removidos == [destino.token]
+    assert _chave(destino) not in redis.dados
+
+
 async def test_erro_transitorio_passa_na_segunda_tentativa(
     monkeypatch: pytest.MonkeyPatch, esperas: list[float]
 ) -> None:
@@ -339,7 +388,7 @@ async def test_erro_permanente_apaga_marca_e_segue(
     primeiro = _destino()
     segundo = _destino()
     _destinos(monkeypatch, [primeiro, segundo])
-    _remover(monkeypatch)
+    removidos = _remover(monkeypatch)
     redis = RedisFalso()
     enviador = EnviadorFalso({primeiro.token: [ErroPermanente("400")]})
 
@@ -351,6 +400,29 @@ async def test_erro_permanente_apaga_marca_e_segue(
     assert esperas == []
     assert _chave(primeiro) not in redis.dados
     assert _chave(segundo) in redis.dados
+    assert removidos == []
+
+
+async def test_sucesso_grava_marca_com_ttl_final(
+    monkeypatch: pytest.MonkeyPatch, esperas: list[float]
+) -> None:
+    destino = _destino()
+    _destinos(monkeypatch, [destino])
+    _remover(monkeypatch)
+    redis = RedisFalso()
+    enviador = EnviadorFalso()
+    expira_em = AGORA + timedelta(hours=2)
+
+    await servico.notificar(
+        _envelope(_ocorrencia(expira_em=expira_em)),
+        POOL,
+        cast(RedisCluster, redis),
+        enviador,
+        AGORA,
+    )
+
+    esperado = int((expira_em - AGORA).total_seconds()) + servico.FOLGA_TTL_S
+    assert redis.expiracao[_chave(destino)] == esperado
 
 
 async def test_ttl_da_marca_respeita_o_minimo(
@@ -363,7 +435,7 @@ async def test_ttl_da_marca_respeita_o_minimo(
     enviador = EnviadorFalso()
 
     await servico.notificar(
-        _envelope(_ocorrencia(expira_em=AGORA + timedelta(seconds=10))),
+        _envelope(_ocorrencia(expira_em=AGORA - timedelta(hours=2))),
         POOL,
         cast(RedisCluster, redis),
         enviador,

@@ -50,6 +50,26 @@ def _resposta_de_erro(status: int, codigo: str | None = None) -> httpx.Response:
     return httpx.Response(status, json={"error": {"status": "ERRO", "details": detalhes}})
 
 
+def _resposta_invalid_argument(*, mensagem: str, campo: str | None = None) -> httpx.Response:
+    detalhes: list[dict[str, Any]] = [
+        {
+            "@type": "type.googleapis.com/google.firebase.fcm.v1.FcmError",
+            "errorCode": "INVALID_ARGUMENT",
+        }
+    ]
+    if campo is not None:
+        detalhes.append(
+            {
+                "@type": "type.googleapis.com/google.rpc.BadRequest",
+                "fieldViolations": [{"field": campo, "description": mensagem}],
+            }
+        )
+    return httpx.Response(
+        400,
+        json={"error": {"status": "INVALID_ARGUMENT", "message": mensagem, "details": detalhes}},
+    )
+
+
 def _handler_token(
     credenciais: fcm.Credenciais, pedidos: list[httpx.Request], resposta: httpx.Response
 ) -> Any:
@@ -134,6 +154,45 @@ async def test_400_vira_erro_permanente() -> None:
     credenciais, _ = _credenciais()
     pedidos: list[httpx.Request] = []
     handler = _handler_token(credenciais, pedidos, _resposta_de_erro(400))
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as cliente:
+        with pytest.raises(fcm.ErroPermanente):
+            await fcm.ClienteFcm(credenciais, cliente).enviar(_mensagem())
+
+
+async def test_400_invalid_argument_de_token_vira_token_invalido() -> None:
+    credenciais, _ = _credenciais()
+    pedidos: list[httpx.Request] = []
+    resposta = _resposta_invalid_argument(
+        mensagem="The registration token is not a valid FCM registration token"
+    )
+    handler = _handler_token(credenciais, pedidos, resposta)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as cliente:
+        with pytest.raises(fcm.TokenInvalido):
+            await fcm.ClienteFcm(credenciais, cliente).enviar(_mensagem())
+
+
+async def test_400_invalid_argument_no_campo_message_token_vira_token_invalido() -> None:
+    credenciais, _ = _credenciais()
+    pedidos: list[httpx.Request] = []
+    resposta = _resposta_invalid_argument(
+        mensagem="Invalid value at 'message.token'", campo="message.token"
+    )
+    handler = _handler_token(credenciais, pedidos, resposta)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as cliente:
+        with pytest.raises(fcm.TokenInvalido):
+            await fcm.ClienteFcm(credenciais, cliente).enviar(_mensagem())
+
+
+async def test_400_invalid_argument_de_payload_vira_erro_permanente() -> None:
+    credenciais, _ = _credenciais()
+    pedidos: list[httpx.Request] = []
+    resposta = _resposta_invalid_argument(
+        mensagem="Invalid JSON payload received", campo="message.data"
+    )
+    handler = _handler_token(credenciais, pedidos, resposta)
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as cliente:
         with pytest.raises(fcm.ErroPermanente):

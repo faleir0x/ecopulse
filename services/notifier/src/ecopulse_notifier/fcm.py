@@ -29,6 +29,9 @@ FOLGA_S = 120
 TIMEOUT_S = 10.0
 # Token do aparelho que não existe mais (app desinstalado, token trocado) ou de outro projeto
 ERROS_DE_TOKEN = {"UNREGISTERED", "SENDER_ID_MISMATCH"}
+# 400 INVALID_ARGUMENT do token malformado (os demais INVALID_ARGUMENT são de payload)
+MENSAGEM_REGISTRO_INVALIDO = "registration token is not a valid"
+CAMPO_REGISTRO = "message.token"
 
 
 class Credenciais(BaseModel):
@@ -93,16 +96,45 @@ def assinar_jwt(credenciais: Credenciais, agora: float) -> str:
     return f"{entrada}.{_b64url(assinatura)}"
 
 
-def _codigo_erro(resposta: httpx.Response) -> str | None:
-    """errorCode do FcmError em error.details (ex.: UNREGISTERED)."""
+def _erro(resposta: httpx.Response) -> dict[str, Any] | None:
+    """Objeto `error` da resposta do FCM, quando existir."""
     try:
-        detalhes = resposta.json()["error"].get("details", [])
+        erro = resposta.json()["error"]
     except (ValueError, KeyError, TypeError, AttributeError):
         return None
+    return erro if isinstance(erro, dict) else None
+
+
+def _codigo_erro(resposta: httpx.Response) -> str | None:
+    """errorCode do FcmError em error.details (ex.: UNREGISTERED) ou o status genérico."""
+    erro = _erro(resposta)
+    if erro is None:
+        return None
+    detalhes = erro.get("details", [])
     for detalhe in detalhes if isinstance(detalhes, list) else []:
         if isinstance(detalhe, dict) and "errorCode" in detalhe:
             return str(detalhe["errorCode"])
-    return None
+    status = erro.get("status")
+    return str(status) if status is not None else None
+
+
+def _aponta_para_token(resposta: httpx.Response) -> bool:
+    """True se o INVALID_ARGUMENT é do token do aparelho, e não do payload da mensagem."""
+    erro = _erro(resposta)
+    if erro is None:
+        return False
+    mensagem = str(erro.get("message", "")).lower()
+    if MENSAGEM_REGISTRO_INVALIDO in mensagem:
+        return True
+    detalhes = erro.get("details", [])
+    for detalhe in detalhes if isinstance(detalhes, list) else []:
+        if not isinstance(detalhe, dict):
+            continue
+        violacoes = detalhe.get("fieldViolations", [])
+        for violacao in violacoes if isinstance(violacoes, list) else []:
+            if isinstance(violacao, dict) and violacao.get("field") == CAMPO_REGISTRO:
+                return True
+    return False
 
 
 class ClienteFcm:
@@ -162,6 +194,12 @@ class ClienteFcm:
         codigo = _codigo_erro(resposta)
         if resposta.status_code in (403, 404) and codigo in ERROS_DE_TOKEN:
             raise TokenInvalido(codigo)
+        if (
+            resposta.status_code == 400
+            and codigo in (None, "INVALID_ARGUMENT")
+            and _aponta_para_token(resposta)
+        ):
+            raise TokenInvalido(codigo or "INVALID_ARGUMENT")
         if resposta.status_code == 401:
             # Token de acesso revogado/vencido antes da hora: pede outro na próxima
             self._token = None

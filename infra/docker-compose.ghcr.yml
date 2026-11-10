@@ -1,5 +1,5 @@
 # Sobe os serviços a partir das imagens publicadas no GHCR (workflow CD), sem build local:
-#   ECOPULSE_TAG=master docker compose -f docker-compose.yml -f docker-compose.ghcr.yml up -d
+#   ECOPULSE_TAG=main docker compose -f docker-compose.yml -f docker-compose.ghcr.yml up -d
 x-imagem: &imagem
   pull_policy: always
 

@@ -1,10 +1,10 @@
 name: CD
 
 # Publica as imagens dos serviços no GitHub Container Registry (Packages).
-# master → tags "master" e "sha-<curto>"; tag vX.Y.Z → "X.Y.Z", "X.Y" e "latest".
+# main → tags "main" e "sha-<curto>"; tag vX.Y.Z → "X.Y.Z", "X.Y" e "latest".
 on:
   push:
-    branches: [master]
+    branches: [main]
     tags: ["v*"]
   workflow_dispatch:
 

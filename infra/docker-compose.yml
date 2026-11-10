@@ -37,6 +37,9 @@ x-python-service: &python-service
     postgres: { condition: service_healthy }
     migrate: { condition: service_completed_successfully }
     redis-cluster-init: { condition: service_completed_successfully }
+    # Política das filas de retry aplicada antes dos consumidores (e o --wait do CI não trata
+    # o container que termina como falha)
+    rabbitmq-politicas: { condition: service_completed_successfully }
 
 services:
   # RabbitMQ em cluster (3 nós) com filas quorum; os serviços falam com o HAProxy

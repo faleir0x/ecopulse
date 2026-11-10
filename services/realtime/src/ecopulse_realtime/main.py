@@ -8,20 +8,27 @@ tarefa, distribuidor.fechar, fechar conexão e Redis.
 GET /health → {"status":"ok"}
 GET /ready  → 503 se a conexão do broker estiver fechada
 WS  /v1/ws  → protocolo.py. Por conexão:
+  - proteção: no máximo MAX_CONEXOES_POR_IP por IP (fecha com 1008), sem nenhuma
+    mensagem por INATIVIDADE_S (fecha com 1001) e no máximo MAX_SUBSCRIBES_POR_MINUTO
+    assinaturas por minuto (fecha com 1008)
   - tarefa de envio: lê cliente.saida e manda send_text; termina se cliente.lento
     (fecha com código 1013 "try again later")
   - laço de recepção: receive_text → TypeAdapter(Comando).validate_json; subscribe →
     validar_celulas → distribuidor.definir → {"type":"subscribed"}; ping → pong;
     JSON/validação inválidos → {"type":"erro","motivo":...} e continua
-  - ao sair (desconexão ou lento): distribuidor.remover e cancelar a tarefa de envio
+  - ao sair (desconexão, lento ou limite): cancela a tarefa de envio, decrementa o
+    contador do IP e chama distribuidor.remover (falha no Redis só é logada)
 """
 
 import asyncio
+import ipaddress
 import json
 import logging
+import time
+from collections import deque
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import aio_pika
 from aio_pika.abc import AbstractRobustConnection
@@ -37,6 +44,12 @@ from ecopulse_realtime import distribuicao, ponte, protocolo
 
 log = logging.getLogger(__name__)
 
+# Proteção do WebSocket exposto na internet (contadores em memória, por instância).
+MAX_CONEXOES_POR_IP = 20
+INATIVIDADE_S = 90
+MAX_SUBSCRIBES_POR_MINUTO = 30
+_JANELA_SUBSCRIBE_S = 60.0
+
 _COMANDO = TypeAdapter(protocolo.Comando)
 
 
@@ -47,6 +60,7 @@ class Servico:
     distribuidor: distribuicao.Distribuidor
     parar: asyncio.Event
     tarefa: asyncio.Task[None]
+    conexoes_por_ip: dict[str, int] = field(default_factory=dict)
 
 
 @asynccontextmanager
@@ -73,6 +87,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         parar=parar,
         tarefa=tarefa,
     )
+    app.state.proxies = frozenset(
+        ip.strip() for ip in settings.proxies_confiaveis.split(",") if ip.strip()
+    )
     try:
         yield
     finally:
@@ -91,6 +108,26 @@ app = FastAPI(title="EcoPulse Realtime", version="0.1.0", lifespan=lifespan)
 def _servico(escopo: Request | WebSocket) -> Servico:
     servico: Servico = escopo.app.state.servico
     return servico
+
+
+def _ip_cliente(websocket: WebSocket) -> str:
+    """IP de origem. CF-Connecting-IP só vale quando a conexão vem de um proxy confiável (o
+    túnel da Cloudflare); de qualquer outro lugar é ignorado, então não dá para forjar o IP.
+    IPv6 vira a rede /64: um cliente troca de endereço dentro do mesmo /64, mas não de rede."""
+    direto = websocket.client.host if websocket.client is not None else "desconhecido"
+    proxies: frozenset[str] = getattr(websocket.app.state, "proxies", frozenset())
+    candidato = direto
+    if direto in proxies:
+        cabecalho = websocket.headers.get("cf-connecting-ip", "").strip()
+        with suppress(ValueError):
+            candidato = str(ipaddress.ip_address(cabecalho))
+    try:
+        endereco = ipaddress.ip_address(candidato)
+    except ValueError:
+        return candidato
+    if isinstance(endereco, ipaddress.IPv6Address):
+        return str(ipaddress.ip_network(f"{endereco}/64", strict=False))
+    return str(endereco)
 
 
 @app.get("/health")
@@ -126,19 +163,47 @@ async def _enviar(websocket: WebSocket, cliente: distribuicao.Cliente) -> None:
 
 @app.websocket("/v1/ws")
 async def websocket_ws(websocket: WebSocket) -> None:
-    await websocket.accept()
-    distribuidor = _servico(websocket).distribuidor
+    servico = _servico(websocket)
+    ip = _ip_cliente(websocket)
+    conexoes = servico.conexoes_por_ip
+    if conexoes.get(ip, 0) >= MAX_CONEXOES_POR_IP:
+        log.warning("conexão recusada: muitas conexões", extra={"ip": ip})
+        await websocket.accept()
+        await websocket.close(code=1008, reason="muitas conexões")
+        return
+
+    conexoes[ip] = conexoes.get(ip, 0) + 1
+    distribuidor = servico.distribuidor
     cliente = distribuicao.Cliente()
-    enviador = asyncio.create_task(_enviar(websocket, cliente))
+    enviador: asyncio.Task[None] | None = None
+    assinaturas: deque[float] = deque()
     try:
+        await websocket.accept()
+        enviador = asyncio.create_task(_enviar(websocket, cliente))
         while True:
             try:
-                comando = _COMANDO.validate_json(await websocket.receive_text())
+                texto = await asyncio.wait_for(websocket.receive_text(), timeout=INATIVIDADE_S)
+            except TimeoutError:
+                log.info("conexão inativa", extra={"ip": ip})
+                await websocket.close(code=1001, reason="inativo")
+                break
+
+            try:
+                comando = _COMANDO.validate_json(texto)
             except ValidationError:
                 _responder(cliente, {"type": "erro", "motivo": "comando inválido"})
                 continue
 
             if isinstance(comando, protocolo.Subscribe):
+                agora = time.monotonic()
+                while assinaturas and agora - assinaturas[0] >= _JANELA_SUBSCRIBE_S:
+                    assinaturas.popleft()
+                if len(assinaturas) >= MAX_SUBSCRIBES_POR_MINUTO:
+                    log.warning("conexão fechada: muitas assinaturas", extra={"ip": ip})
+                    await websocket.close(code=1008, reason="muitas assinaturas")
+                    break
+                assinaturas.append(agora)
+
                 try:
                     celulas = protocolo.validar_celulas(comando.cells)
                 except ValueError as exc:
@@ -151,7 +216,25 @@ async def websocket_ws(websocket: WebSocket) -> None:
     except WebSocketDisconnect:
         pass
     finally:
-        await distribuidor.remover(cliente)
-        enviador.cancel()
-        with suppress(asyncio.CancelledError):
-            await enviador
+        # Cancela o envio ANTES do remover: se o Redis estiver em failover, a tarefa não vaza.
+        if enviador is not None:
+            enviador.cancel()
+            try:
+                await enviador
+            except asyncio.CancelledError:
+                pass
+            except Exception as exc:
+                log.warning(
+                    "falha na tarefa de envio",
+                    extra={"ip": ip, "error": f"{type(exc).__name__}: {exc}"},
+                )
+        conexoes[ip] -= 1
+        if conexoes[ip] <= 0:
+            del conexoes[ip]
+        try:
+            await distribuidor.remover(cliente)
+        except Exception as exc:  # falha no Redis não pode impedir a limpeza
+            log.warning(
+                "falha ao remover cliente",
+                extra={"ip": ip, "error": f"{type(exc).__name__}: {exc}"},
+            )

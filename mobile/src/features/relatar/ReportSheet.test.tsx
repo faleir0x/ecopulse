@@ -205,6 +205,25 @@ describe('ReportSheet', () => {
     expect(mockTentarDeNovo).toHaveBeenCalledWith('client-id');
   });
 
+  it('mostra a falha e libera o envio quando o SQLite não grava', async () => {
+    mockRelatar.mockImplementationOnce(() => {
+      throw new Error('disco cheio');
+    });
+    const utilitarios = await montarRelato();
+    await avancarParaGravidade(utilitarios);
+
+    await fireEvent.press(utilitarios.getByLabelText('Crítico'));
+    await fireEvent.press(utilitarios.getByLabelText('Enviar'));
+
+    expect(await utilitarios.findByText('Não enviado')).toBeTruthy();
+    expect(mockRelatar).toHaveBeenCalledTimes(1);
+
+    // Sem client_id não há o que repetir na fila; o botão refaz o envio inteiro.
+    await fireEvent.press(utilitarios.getByLabelText('Tentar de novo'));
+    expect(await utilitarios.findByText('Relato enviado')).toBeTruthy();
+    expect(mockTentarDeNovo).not.toHaveBeenCalled();
+  });
+
   it('mostra a dica do tipo e nível escolhidos', async () => {
     const utilitarios = await montarRelato();
     await avancarParaGravidade(utilitarios);

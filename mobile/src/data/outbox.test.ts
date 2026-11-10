@@ -5,6 +5,7 @@ import type { RelatoEnvio } from '@/api/cliente';
 import {
   BACKOFF_BASE_MS,
   BACKOFF_MAX_MS,
+  cancelarPendente,
   contarPendentes,
   enfileirar,
   marcarEncerrado,
@@ -131,11 +132,34 @@ describe('outbox', () => {
 
     const chamadas = db.runSync.mock.calls as [string, unknown[]][];
     expect(chamadas[0]?.[0]).toContain("status = 'enviado'");
+    expect(chamadas[0]?.[0]).toContain("AND status = 'pendente'");
     expect(chamadas[0]?.[1]).toEqual([9000, 'cliente-1']);
     expect(chamadas[1]?.[0]).toContain("status = 'rejeitado'");
+    expect(chamadas[1]?.[0]).toContain("AND status = 'pendente'");
     expect(chamadas[1]?.[1]).toEqual(['inválido', 'cliente-2']);
     expect(chamadas[2]?.[0]).toContain("status = 'encerrado'");
+    expect(chamadas[2]?.[0]).toContain("AND status = 'enviado'");
     expect(chamadas[2]?.[1]).toEqual(['cliente-3']);
+  });
+
+  it('cancela apenas relatos ainda pendentes', () => {
+    const db = criarDb();
+
+    cancelarPendente(db as unknown as SQLiteDatabase, 'cliente-1');
+
+    const [sql, parametros] = db.runSync.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain("SET status = 'cancelado'");
+    expect(sql).toContain("AND status = 'pendente'");
+    expect(parametros).toEqual(['cliente-1']);
+  });
+
+  it('marcarEnviado não sobrescreve um relato cancelado/encerrado', () => {
+    const db = criarDb();
+
+    marcarEnviado(db as unknown as SQLiteDatabase, 'cliente-1', 9000);
+
+    const [sql] = db.runSync.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain("AND status = 'pendente'");
   });
 
   it('lista meus relatos do mais recente para o mais antigo', () => {
@@ -190,6 +214,7 @@ describe('outbox', () => {
     );
     const [sql, parametros] = db.runSync.mock.calls[0] as [string, unknown[]];
     expect(sql).toContain('tentativas = tentativas + 1');
+    expect(sql).toContain("AND status = 'pendente'");
     expect(parametros).toEqual([1000 + BACKOFF_BASE_MS * 2, 'falhou', 'cliente-1']);
   });
 });

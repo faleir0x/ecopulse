@@ -7,7 +7,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 
 import type { RelatoEnvio } from '@/api/cliente';
 
-export type StatusRelato = 'pendente' | 'enviado' | 'rejeitado' | 'encerrado';
+export type StatusRelato = 'pendente' | 'enviado' | 'rejeitado' | 'encerrado' | 'cancelado';
 
 export type MidiaLocal = { uri: string; tipo: 'imagem' | 'video' };
 
@@ -151,11 +151,15 @@ export function contarPendentes(db: SQLiteDatabase): number {
   return Number(linha?.total ?? 0);
 }
 
+/**
+ * Transições de saída da fila só valem para quem ainda está pendente: um 202 atrasado não
+ * sobrescreve um relato que o usuário encerrou/cancelou no meio do envio.
+ */
 export function marcarEnviado(db: SQLiteDatabase, clientId: string, agora: number): void {
   db.runSync(
     `UPDATE relatos
      SET status = 'enviado', enviado_em = ?, proxima_tentativa_em = NULL, ultimo_erro = NULL
-     WHERE client_id = ?`,
+     WHERE client_id = ? AND status = 'pendente'`,
     [agora, clientId],
   );
 }
@@ -165,14 +169,27 @@ export function marcarRejeitado(db: SQLiteDatabase, clientId: string, erro: stri
   db.runSync(
     `UPDATE relatos
      SET status = 'rejeitado', ultimo_erro = ?, proxima_tentativa_em = NULL
-     WHERE client_id = ?`,
+     WHERE client_id = ? AND status = 'pendente'`,
     [erro, clientId],
   );
 }
 
-/** "Já passou" no próprio relato. */
+/** Desistiu do envio: o relato fica visível em Meus relatos, mas não sai mais da fila. */
+export function cancelarPendente(db: SQLiteDatabase, clientId: string): void {
+  db.runSync(
+    `UPDATE relatos
+     SET status = 'cancelado', proxima_tentativa_em = NULL
+     WHERE client_id = ? AND status = 'pendente'`,
+    [clientId],
+  );
+}
+
+/** "Já passou" no próprio relato: só um relato já aceito pelo servidor vira encerrado. */
 export function marcarEncerrado(db: SQLiteDatabase, clientId: string): void {
-  db.runSync(`UPDATE relatos SET status = 'encerrado' WHERE client_id = ?`, [clientId]);
+  db.runSync(
+    `UPDATE relatos SET status = 'encerrado' WHERE client_id = ? AND status = 'enviado'`,
+    [clientId],
+  );
 }
 
 /**
@@ -213,7 +230,7 @@ export function registrarFalha(
   db.runSync(
     `UPDATE relatos
      SET tentativas = tentativas + 1, proxima_tentativa_em = ?, ultimo_erro = ?
-     WHERE client_id = ?`,
+     WHERE client_id = ? AND status = 'pendente'`,
     [proxima, erro, clientId],
   );
 }

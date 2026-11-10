@@ -202,7 +202,13 @@ export function ReportSheet() {
 
     if (!estado.online) {
       // Offline vai para a fila sem esperar: o Sincronizador envia quando a rede voltar
-      void relatar(novo, midias).catch(() => undefined);
+      try {
+        void relatar(novo, midias).catch(() => undefined);
+      } catch {
+        // Falha ao gravar no SQLite: nada foi para a fila.
+        setFalha('na_fila');
+        return;
+      }
       void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(
         () => undefined,
       );
@@ -211,7 +217,15 @@ export function ReportSheet() {
     }
 
     setEnviando(true);
-    const promessa = relatar(novo, midias);
+    let promessa: ReturnType<typeof relatar>;
+    try {
+      promessa = relatar(novo, midias);
+    } catch {
+      // O enfileiramento é síncrono: se o SQLite falhar, não há promessa para aguardar.
+      setEnviando(false);
+      setFalha('na_fila');
+      return;
+    }
     const clientId = promessa.clientId;
     let resultado: ResultadoRelato = 'na_fila';
     try {
@@ -243,7 +257,13 @@ export function ReportSheet() {
   ]);
 
   const tentarEnviarDeNovo = useCallback(async () => {
-    if (!clienteFalha) return;
+    // Falha ao gravar na outbox: não existe client_id para repetir, então refaz o envio todo.
+    if (!clienteFalha) {
+      setRetentando(true);
+      await enviar();
+      setRetentando(false);
+      return;
+    }
     setRetentando(true);
     const resultado = await tentarDeNovo(clienteFalha);
     setRetentando(false);
@@ -257,7 +277,7 @@ export function ReportSheet() {
       return;
     }
     setFalha(resultado);
-  }, [clienteFalha, tentarDeNovo, mostrarSucesso]);
+  }, [clienteFalha, tentarDeNovo, mostrarSucesso, enviar]);
 
   const usarPonto = useCallback((ponto: Coordenada) => {
     setPontoAjustado(ponto);

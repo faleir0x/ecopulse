@@ -265,4 +265,35 @@ describe('Sincronizador', () => {
     expect(enviar).toHaveBeenCalledTimes(1);
     sync.parar();
   });
+
+  it('não faz rodada nem notifica quando a fila está vazia', async () => {
+    jest.useFakeTimers();
+    const enviar = jest.fn(async () => undefined);
+    const { repo, sync } = montar([], enviar);
+    const prontos = jest.spyOn(repo, 'prontos');
+    const ouvinte = jest.fn();
+    sync.ouvir(ouvinte);
+
+    sync.iniciar();
+    await jest.advanceTimersByTimeAsync(5000);
+
+    expect(prontos).not.toHaveBeenCalled();
+    expect(enviar).not.toHaveBeenCalled();
+    expect(ouvinte).not.toHaveBeenCalled();
+    sync.parar();
+  });
+
+  it('não notifica quando os prontos ainda estão em backoff', async () => {
+    const enviar = jest.fn(async () => undefined);
+    const relato = criarRelato('a', 100);
+    relato.proxima_tentativa_em = 5000;
+    const { sync } = montar([relato], enviar, 1000);
+    const ouvinte = jest.fn();
+    sync.ouvir(ouvinte);
+
+    await sync.sincronizarAgora();
+
+    expect(enviar).not.toHaveBeenCalled();
+    expect(ouvinte).not.toHaveBeenCalled();
+  });
 });

@@ -36,6 +36,8 @@ export class Sincronizador {
   private timer: ReturnType<typeof setInterval> | null = null;
   private cancelarRede: (() => void) | null = null;
   private ouvintes = new Set<(estado: EstadoSync) => void>();
+  /** Último estado entregue: notificações repetidas não re-renderizam os consumidores. */
+  private ultimoEstado: EstadoSync | null = null;
 
   constructor(private readonly deps: Deps) {}
 
@@ -57,6 +59,10 @@ export class Sincronizador {
 
     if (!this.timer) {
       this.timer = setInterval(() => {
+        // Fila vazia é o caso comum: nem chega a abrir uma rodada (nem notifica).
+        if (this.deps.repo.contarPendentes() === 0) {
+          return;
+        }
         void this.sincronizarAgora();
       }, this.deps.intervaloMs ?? INTERVALO_PADRAO_MS);
     }
@@ -78,7 +84,7 @@ export class Sincronizador {
    * concorrentes reaproveitam a rodada em andamento). 202 → marcarEnviado; ApiErro
    * temporário → registrarFalha(retryAfterS) e PARA a rodada se status 0 (sem rede);
    * ApiErro definitivo → marcarRejeitado; outro erro → registrarFalha.
-   * Offline: não tenta. Notifica os ouvintes a cada mudança de estado.
+   * Offline: não tenta. Só notifica os ouvintes quando o estado realmente muda.
    */
   sincronizarAgora(): Promise<void> {
     if (this.rodada) {
@@ -95,12 +101,16 @@ export class Sincronizador {
   }
 
   private async executarRodada(): Promise<void> {
+    const prontos = this.deps.repo.prontos(this.obterAgora());
+    // Nada vencido (backoff em curso): não há mudança de estado a anunciar.
+    if (prontos.length === 0) {
+      return;
+    }
+
     this.enviando = true;
     this.notificar();
 
     try {
-      const prontos = this.deps.repo.prontos(this.obterAgora());
-
       for (const relato of prontos) {
         if (!this.online) {
           break;
@@ -160,10 +170,23 @@ export class Sincronizador {
 
   private notificar(): void {
     const estado = this.estado();
+    if (this.ultimoEstado && iguais(this.ultimoEstado, estado)) {
+      return;
+    }
+    this.ultimoEstado = estado;
     for (const ouvinte of [...this.ouvintes]) {
       ouvinte(estado);
     }
   }
+}
+
+function iguais(a: EstadoSync, b: EstadoSync): boolean {
+  return (
+    a.online === b.online &&
+    a.pendentes === b.pendentes &&
+    a.enviando === b.enviando &&
+    a.ultimoEnvio === b.ultimoEnvio
+  );
 }
 
 export { ApiErro };

@@ -3,6 +3,7 @@ import {
   buscarOcorrencia,
   confirmarOcorrencia,
   enviarRelato,
+  lerCamada,
   listarOcorrencias,
   TIMEOUT_MS,
   type RelatoEnvio,
@@ -44,6 +45,17 @@ const relato: RelatoEnvio = {
   latitude: -23.55,
   longitude: -46.63,
   registrado_em: '2026-01-01T00:00:00Z',
+};
+
+const celula = {
+  geohash: '6gyf4',
+  lat_min: -23.55,
+  lon_min: -46.65,
+  lat_max: -23.5,
+  lon_max: -46.6,
+  temperatura: 24,
+  aqi: 35,
+  medido_em: '2026-11-08T12:00:00Z',
 };
 
 afterEach(() => {
@@ -115,6 +127,19 @@ describe('cliente HTTP', () => {
     );
   });
 
+  it('só aceita 202 no POST de relato: 200 não conta como enviado', async () => {
+    const fetchFake = jest.fn(async () => resposta({ ok: true, status: 200 }));
+
+    const erro = await enviarRelato(relato, {
+      base: 'http://api.test',
+      fetch: fetchFake as unknown as typeof fetch,
+    }).catch((e: unknown) => e);
+
+    expect(erro).toBeInstanceOf(ApiErro);
+    expect((erro as ApiErro).status).toBe(0);
+    expect((erro as ApiErro).temporario).toBe(true);
+  });
+
   it('transforma falha de rede em ApiErro(0)', async () => {
     const fetchFake = jest.fn(async () => {
       throw new TypeError('rede fora');
@@ -173,6 +198,89 @@ describe('cliente HTTP', () => {
     expect(erro).toBeInstanceOf(ApiErro);
     expect((erro as ApiErro).status).toBe(422);
     expect((erro as ApiErro).temporario).toBe(false);
+  });
+
+  it('trata 404 com HTML do proxy como temporário', async () => {
+    const fetchFake = jest.fn(async () =>
+      resposta({
+        ok: false,
+        status: 404,
+        statusText: 'Not Found',
+        headers: { get: () => null },
+        text: async () => '<html><body>Bad gateway</body></html>',
+      }),
+    );
+
+    const erro = await enviarRelato(relato, {
+      base: 'http://api.test',
+      fetch: fetchFake as unknown as typeof fetch,
+    }).catch((e: unknown) => e);
+
+    expect(erro).toBeInstanceOf(ApiErro);
+    expect((erro as ApiErro).status).toBe(404);
+    expect((erro as ApiErro).temporario).toBe(true);
+  });
+
+  it('trata 404 com JSON da API como definitivo', async () => {
+    const fetchFake = jest.fn(async () =>
+      resposta({
+        ok: false,
+        status: 404,
+        headers: { get: () => null },
+        text: async () => JSON.stringify({ detail: 'relato não existe' }),
+      }),
+    );
+
+    const erro = await enviarRelato(relato, {
+      base: 'http://api.test',
+      fetch: fetchFake as unknown as typeof fetch,
+    }).catch((e: unknown) => e);
+
+    expect(erro).toBeInstanceOf(ApiErro);
+    expect((erro as ApiErro).status).toBe(404);
+    expect((erro as ApiErro).temporario).toBe(false);
+  });
+
+  it('lê as células e o header X-Celulas-Pendentes da camada', async () => {
+    const fetchFake = jest.fn(async () =>
+      resposta({
+        ok: true,
+        status: 200,
+        headers: {
+          get: (nome) => (nome.toLowerCase() === 'x-celulas-pendentes' ? '4' : null),
+        },
+        json: async () => [celula],
+      }),
+    );
+
+    const camada = await lerCamada(
+      { latMin: -23.6, lonMin: -46.7, latMax: -23.5, lonMax: -46.5 },
+      { base: 'http://api.test', fetch: fetchFake as unknown as typeof fetch },
+    );
+
+    expect(camada).toEqual({ celulas: [celula], pendentes: 4 });
+    expect(fetchFake).toHaveBeenCalledWith(
+      'http://api.test/v1/ambiente/camada?bbox=-46.7,-23.6,-46.5,-23.5',
+      expect.objectContaining({ method: 'GET' }),
+    );
+  });
+
+  it('assume zero células pendentes quando o header está ausente', async () => {
+    const fetchFake = jest.fn(async () =>
+      resposta({
+        ok: true,
+        status: 200,
+        headers: { get: () => null },
+        json: async () => [celula],
+      }),
+    );
+
+    const camada = await lerCamada(
+      { latMin: -23.6, lonMin: -46.7, latMax: -23.5, lonMax: -46.5 },
+      { base: 'http://api.test', fetch: fetchFake as unknown as typeof fetch },
+    );
+
+    expect(camada.pendentes).toBe(0);
   });
 
   it('aborta por timeout e devolve ApiErro(0)', async () => {

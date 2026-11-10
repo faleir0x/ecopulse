@@ -32,7 +32,8 @@ async function montar(ativa: boolean) {
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={cliente}>{children}</QueryClientProvider>
   );
-  return renderHook(() => useCamada(BBOX, ativa), { wrapper });
+  const { result } = await renderHook(() => useCamada(BBOX, ativa), { wrapper });
+  return { result, cliente };
 }
 
 beforeEach(() => {
@@ -51,11 +52,33 @@ describe('useCamada', () => {
   });
 
   it('busca as células quando a camada está ativa', async () => {
-    lerCamadaMock.mockResolvedValue([CELULA]);
+    lerCamadaMock.mockResolvedValue({ celulas: [CELULA], pendentes: 0 });
 
     const { result } = await montar(true);
 
     await waitFor(() => expect(result.current.data).toEqual([CELULA]));
     expect(lerCamadaMock).toHaveBeenCalledWith(BBOX, expect.anything());
+  });
+
+  it('usa o contador do header para decidir o intervalo (5 s com pendentes)', async () => {
+    lerCamadaMock.mockResolvedValue({ celulas: [], pendentes: 3 });
+
+    const { result, cliente } = await montar(true);
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toEqual([]);
+
+    // A opção de intervalo recebe a query bruta (com o contador), não o dado do select.
+    const consulta = cliente
+      .getQueryCache()
+      .find({ queryKey: ['camada', '-46.700,-23.600,-46.500,-23.500'] });
+    const intervalo = (
+      consulta?.options as unknown as {
+        refetchInterval?: (query: unknown) => number;
+      }
+    )?.refetchInterval;
+
+    expect(intervalo?.({ state: { data: { pendentes: 3 } } })).toBe(5_000);
+    expect(intervalo?.({ state: { data: { pendentes: 0 } } })).toBe(60_000);
   });
 });

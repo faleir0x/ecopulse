@@ -9,10 +9,11 @@ import { TelaMeusRelatos } from './TelaMeusRelatos';
 
 let mockMeus: RelatoLocal[] = [];
 const mockEncerrar = jest.fn();
+const mockCancelar = jest.fn();
 const mockSetRelatarAberto = jest.fn();
 
 jest.mock('@/state/relatos', () => ({
-  useRelatos: () => ({ meus: mockMeus, encerrar: mockEncerrar }),
+  useRelatos: () => ({ meus: mockMeus, encerrar: mockEncerrar, cancelar: mockCancelar }),
 }));
 
 const mockResolver = jest.fn();
@@ -96,6 +97,7 @@ function montar() {
 beforeEach(() => {
   mockMeus = [];
   mockEncerrar.mockClear();
+  mockCancelar.mockClear();
   mockSetRelatarAberto.mockClear();
   mockBack.mockClear();
 });
@@ -118,6 +120,7 @@ describe('TelaMeusRelatos', () => {
       relato('enviado', 'enviado-1'),
       relato('encerrado', 'encerrado-1'),
       relato('rejeitado', 'rejeitado-1'),
+      relato('cancelado', 'cancelado-1'),
     ];
 
     const { getByText } = await montar();
@@ -126,10 +129,11 @@ describe('TelaMeusRelatos', () => {
     expect(getByText('Enviado')).toBeTruthy();
     expect(getByText('Encerrado')).toBeTruthy();
     expect(getByText('Rejeitado')).toBeTruthy();
+    expect(getByText('Envio cancelado')).toBeTruthy();
     expect(getByText('Dados inválidos')).toBeTruthy();
   });
 
-  it('mostra "Já passou" só para pendentes e enviados', async () => {
+  it('mostra "Cancelar envio" no pendente e "Já passou" só no enviado', async () => {
     mockMeus = [
       relato('pendente', 'pendente-1'),
       relato('enviado', 'enviado-1'),
@@ -137,17 +141,28 @@ describe('TelaMeusRelatos', () => {
       relato('rejeitado', 'rejeitado-1'),
     ];
 
-    const { getAllByLabelText } = await montar();
+    const { getAllByLabelText, getByLabelText } = await montar();
 
-    expect(getAllByLabelText('Já passou')).toHaveLength(2);
+    expect(getAllByLabelText('Já passou')).toHaveLength(1);
+    expect(getByLabelText('Cancelar envio')).toBeTruthy();
   });
 
-  it('encerra o relato tocado em "Já passou"', async () => {
+  it('cancela o envio do relato pendente tocado', async () => {
     mockMeus = [relato('pendente', 'pendente-1')];
 
     const { getByLabelText } = await montar();
 
+    await fireEvent.press(getByLabelText('Cancelar envio'));
+    expect(mockCancelar).toHaveBeenCalledWith('pendente-1');
+    expect(mockEncerrar).not.toHaveBeenCalled();
+  });
+
+  it('encerra o relato enviado tocado em "Já passou"', async () => {
+    mockMeus = [relato('enviado', 'enviado-1')];
+
+    const { getByLabelText } = await montar();
+
     await fireEvent.press(getByLabelText('Já passou'));
-    expect(mockEncerrar).toHaveBeenCalledWith('pendente-1');
+    expect(mockEncerrar).toHaveBeenCalledWith('enviado-1');
   });
 });

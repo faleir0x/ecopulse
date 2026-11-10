@@ -18,7 +18,7 @@ import { RelatoRow } from './RelatoRow';
 type Visualizador = { midias: MidiaLocal[]; indice: number };
 
 export function TelaMeusRelatos() {
-  const { meus, encerrar } = useRelatos();
+  const { meus, encerrar, cancelar } = useRelatos();
   const { mutate: resolver } = useResolver();
   const aoEncerrar = (clientId: string, ocorrenciaId: number | null) => {
     encerrar(clientId);
@@ -75,6 +75,7 @@ export function TelaMeusRelatos() {
                 <RelatoRow
                   relato={relato}
                   onEncerrar={aoEncerrar}
+                  onCancelar={cancelar}
                   onAbrirMidia={(midias, posicao) => setVisualizador({ midias, indice: posicao })}
                   onAbrir={abrirNoMapa}
                 />

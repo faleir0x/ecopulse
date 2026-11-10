@@ -13,8 +13,8 @@ function chaveBbox(b: Bbox): string {
 
 /**
  * Células ambientais do retângulo visível. Desligada quando a camada é "nenhuma"; busca a cada
- * 15 s enquanto a última resposta veio vazia (o environment coleta células novas em até 30 s)
- * e a cada 60 s quando já há dados (o cache da API e o coletor trabalham nessa janela).
+ * 5 s enquanto o servidor informa células pendentes (X-Celulas-Pendentes > 0) e a cada 60 s
+ * quando a camada já está completa (o cache da API e o coletor trabalham nessa janela).
  */
 export function useCamada(bbox: Bbox | null, ativa: boolean) {
   return useQuery({
@@ -22,11 +22,13 @@ export function useCamada(bbox: Bbox | null, ativa: boolean) {
     queryFn: ({ signal }) => lerCamada(bbox!, { signal }),
     enabled: ativa && bbox !== null,
     staleTime: 60_000,
+    // O select mantém TelaMapa recebendo só as células; a query guarda também o contador.
+    select: (dados) => dados.celulas,
     // `keepPreviousData` mantém as células da área anterior só enquanto o novo pedido está
     // pendente. Em erro o react-query v5 não aplica o placeholder (status "error"), então a
     // camada é descartada em vez de continuar mostrando o retângulo antigo.
     refetchInterval: (query) =>
-      (query.state.data?.length ?? 0) > 0 ? 60_000 : 15_000,
+      (query.state.data?.pendentes ?? 0) > 0 ? 5_000 : 60_000,
     placeholderData: keepPreviousData,
   });
 }

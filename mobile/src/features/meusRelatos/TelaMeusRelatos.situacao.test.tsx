@@ -15,12 +15,13 @@ jest.mock('@/api/cliente', () => ({
 
 let mockMeus: RelatoLocal[] = [];
 const mockEncerrar = jest.fn();
+const mockCancelar = jest.fn();
 const mockSetRelatarAberto = jest.fn();
 const mockSetOcorrenciaFoco = jest.fn();
 const mockBuscar = buscarSituacaoRelato as jest.Mock;
 
 jest.mock('@/state/relatos', () => ({
-  useRelatos: () => ({ meus: mockMeus, encerrar: mockEncerrar }),
+  useRelatos: () => ({ meus: mockMeus, encerrar: mockEncerrar, cancelar: mockCancelar }),
 }));
 
 jest.mock('@/state/ui', () => ({
@@ -109,6 +110,7 @@ beforeEach(() => {
   mockMeus = [];
   mockBuscar.mockReset();
   mockEncerrar.mockClear();
+  mockCancelar.mockClear();
   mockSetRelatarAberto.mockClear();
   mockSetOcorrenciaFoco.mockClear();
   mockNavigate.mockClear();

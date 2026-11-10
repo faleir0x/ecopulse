@@ -21,12 +21,15 @@ export const STATUS_RELATO: Record<StatusRelato, { rotulo: string; icone: NomeIc
   enviado: { rotulo: 'Enviado', icone: 'cloud-check' },
   encerrado: { rotulo: 'Encerrado', icone: 'check-circle' },
   rejeitado: { rotulo: 'Rejeitado', icone: 'cloud-cross' },
+  cancelado: { rotulo: 'Envio cancelado', icone: 'close' },
 };
 
 export type RelatoRowProps = {
   relato: RelatoLocal;
   /** ocorrenciaId: a ocorrência ativa em que o relato entrou (marca "Já passou" no servidor). */
   onEncerrar: (clientId: string, ocorrenciaId: number | null) => void;
+  /** Desiste do envio de um relato ainda pendente. */
+  onCancelar: (clientId: string) => void;
   onAbrirMidia: (midias: MidiaLocal[], indice: number) => void;
   /** Abre o detalhe da ocorrência em que o relato entrou. */
   onAbrir: (ocorrenciaId: number) => void;
@@ -35,10 +38,17 @@ export type RelatoRowProps = {
 /** Depois disso, sem resposta do servidor o relato aparece como "Sem detalhes". */
 export const JANELA_PROCESSAMENTO_MS = 2 * 60_000;
 
-export function RelatoRow({ relato, onEncerrar, onAbrirMidia, onAbrir }: RelatoRowProps) {
+export function RelatoRow({
+  relato,
+  onEncerrar,
+  onCancelar,
+  onAbrirMidia,
+  onAbrir,
+}: RelatoRowProps) {
   const { cor, sev } = useTema();
   const status = STATUS_RELATO[relato.status];
-  const podeEncerrar = relato.status === 'pendente' || relato.status === 'enviado';
+  const podeCancelar = relato.status === 'pendente';
+  const podeEncerrar = relato.status === 'enviado';
   const { data: situacao } = useSituacaoRelato(relato.client_id, relato.status);
 
   // O processor grava em segundos; 404 por mais tempo que isso não é "processando"
@@ -52,7 +62,8 @@ export function RelatoRow({ relato, onEncerrar, onAbrirMidia, onAbrir }: RelatoR
     ocorrenciaId !== null &&
     situacao?.status_ocorrencia === 'ativa' &&
     relato.status !== 'pendente' &&
-    relato.status !== 'rejeitado';
+    relato.status !== 'rejeitado' &&
+    relato.status !== 'cancelado';
 
   const rotuloStatus = expirada
     ? STATUS_RELATO.encerrado.rotulo
@@ -130,7 +141,9 @@ export function RelatoRow({ relato, onEncerrar, onAbrirMidia, onAbrir }: RelatoR
       </View>
 
       {/* Já encerrada no servidor (validade ou "Já passou" de outros): nada a marcar */}
-      {podeEncerrar && !expirada ? (
+      {podeCancelar && !expirada ? (
+        <Pill rotulo="Cancelar envio" onPress={() => onCancelar(relato.client_id)} />
+      ) : podeEncerrar && !expirada ? (
         <Pill
           rotulo="Já passou"
           onPress={() =>

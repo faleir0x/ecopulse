@@ -5,7 +5,16 @@
 import NetInfo from '@react-native-community/netinfo';
 import { useQueryClient } from '@tanstack/react-query';
 import { randomUUID } from 'expo-crypto';
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 
 import { enviarRelato, type RelatoEnvio } from '@/api/cliente';
 import { idAparelho } from '@/data/aparelho';
@@ -27,6 +36,8 @@ type Relatos = {
   /** Relatos do aparelho (Meus relatos e marcadores pendentes no mapa). */
   meus: outbox.RelatoLocal[];
   encerrar: (clientId: string) => void;
+  /** Desiste do envio de um relato ainda pendente (não mexe em enviados/encerrados). */
+  cancelar: (clientId: string) => void;
   /** Tenta enviar a fila agora (ex.: o WebSocket reconectou: o servidor voltou). */
   sincronizarAgora: () => void;
   /** Nova tentativa só daquele relato, ignorando o backoff agendado. */
@@ -54,6 +65,36 @@ export function RelatosProvider({ children }: { children: ReactNode }) {
   const clienteQuery = useQueryClient();
   const [estado, setEstado] = useState<EstadoSync>(ESTADO_INICIAL);
   const [meus, setMeus] = useState<outbox.RelatoLocal[]>(() => outbox.meusRelatos(db));
+  /** Último estado aplicado: evita reler o SQLite inteiro a cada notificação repetida. */
+  const estadoRef = useRef<EstadoSync>(ESTADO_INICIAL);
+
+  const aplicarEstado = useCallback(
+    (novo: EstadoSync) => {
+      const anterior = estadoRef.current;
+      if (
+        anterior.online === novo.online &&
+        anterior.pendentes === novo.pendentes &&
+        anterior.enviando === novo.enviando &&
+        anterior.ultimoEnvio === novo.ultimoEnvio
+      ) {
+        return;
+      }
+
+      estadoRef.current = novo;
+      setEstado(novo);
+
+      // Só releia a lista quando a fila ou o último envio mudarem (cada leitura é um SELECT *).
+      if (anterior.pendentes !== novo.pendentes || anterior.ultimoEnvio !== novo.ultimoEnvio) {
+        setMeus(outbox.meusRelatos(db));
+      }
+
+      // Um envio bem-sucedido pode ter criado/atualizado uma ocorrência: o mapa rebusca.
+      if (anterior.ultimoEnvio !== novo.ultimoEnvio) {
+        void clienteQuery.invalidateQueries({ queryKey: ['ocorrencias'] });
+      }
+    },
+    [db, clienteQuery],
+  );
 
   const sincronizador = useMemo(
     () =>
@@ -73,19 +114,14 @@ export function RelatosProvider({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => {
-    const cancelar = sincronizador.ouvir((novo) => {
-      setEstado(novo);
-      setMeus(outbox.meusRelatos(db));
-      // Um relato acabou de sair: o mapa busca de novo (o WebSocket da 4.5 também avisa)
-      if (novo.ultimoEnvio) void clienteQuery.invalidateQueries({ queryKey: ['ocorrencias'] });
-    });
+    const cancelarOuvinte = sincronizador.ouvir(aplicarEstado);
     // iniciar() assina a rede, que já notifica o estado atual pelos ouvintes
     sincronizador.iniciar();
     return () => {
-      cancelar();
+      cancelarOuvinte();
       sincronizador.parar();
     };
-  }, [sincronizador, db, clienteQuery]);
+  }, [sincronizador, aplicarEstado]);
 
   const tentarEnvio = useCallback(
     async (clientId: string): Promise<ResultadoRelato> => {
@@ -96,11 +132,12 @@ export function RelatosProvider({ children }: { children: ReactNode }) {
       if (local?.status === 'pendente' && local.tentativas === 0) {
         await sincronizador.sincronizarAgora();
       }
+      // tentativas/último_erro mudam sem alterar a contagem: relê sempre antes de responder.
       setMeus(outbox.meusRelatos(db));
-      setEstado(sincronizador.estado());
+      aplicarEstado(sincronizador.estado());
       return resultadoNaOutbox(db, clientId);
     },
-    [db, sincronizador],
+    [db, sincronizador, aplicarEstado],
   );
 
   const relatar = useCallback(
@@ -112,13 +149,12 @@ export function RelatosProvider({ children }: { children: ReactNode }) {
         midias,
         Date.now(),
       );
-      setMeus(outbox.meusRelatos(db));
-      setEstado(sincronizador.estado());
+      aplicarEstado(sincronizador.estado());
       const promessa = tentarEnvio(clientId) as EnvioRelato;
       promessa.clientId = clientId;
       return promessa;
     },
-    [db, sincronizador, tentarEnvio],
+    [db, sincronizador, tentarEnvio, aplicarEstado],
   );
 
   const tentarDeNovo = useCallback(
@@ -137,8 +173,18 @@ export function RelatosProvider({ children }: { children: ReactNode }) {
     (clientId: string) => {
       outbox.marcarEncerrado(db, clientId);
       setMeus(outbox.meusRelatos(db));
+      aplicarEstado(sincronizador.estado());
     },
-    [db],
+    [db, sincronizador, aplicarEstado],
+  );
+
+  const cancelar = useCallback(
+    (clientId: string) => {
+      outbox.cancelarPendente(db, clientId);
+      // A contagem de pendentes muda: aplicarEstado atualiza o pill e relê "Meus relatos".
+      aplicarEstado(sincronizador.estado());
+    },
+    [db, sincronizador, aplicarEstado],
   );
 
   const sincronizarAgora = useCallback(() => {
@@ -146,8 +192,8 @@ export function RelatosProvider({ children }: { children: ReactNode }) {
   }, [sincronizador]);
 
   const valor = useMemo(
-    () => ({ estado, relatar, meus, encerrar, sincronizarAgora, tentarDeNovo }),
-    [estado, relatar, meus, encerrar, sincronizarAgora, tentarDeNovo],
+    () => ({ estado, relatar, meus, encerrar, cancelar, sincronizarAgora, tentarDeNovo }),
+    [estado, relatar, meus, encerrar, cancelar, sincronizarAgora, tentarDeNovo],
   );
   return <RelatosContext.Provider value={valor}>{children}</RelatosContext.Provider>;
 }

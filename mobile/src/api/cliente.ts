@@ -28,13 +28,34 @@ export class ApiErro extends Error {
     readonly status: number,
     message: string,
     readonly retryAfterS: number | null = null,
+    /** A resposta veio com corpo JSON (erro da nossa API, não HTML de proxy/portal). */
+    readonly corpoJson = false,
   ) {
     super(message);
     this.name = 'ApiErro';
   }
-  /** Vale tentar de novo depois (rede, timeout, 429, 5xx). 4xx restantes são definitivos. */
+
+  /**
+   * 400/409/413/422 são rejeições definitivas. São passageiros: rede/timeout (status 0),
+   * 408, 425, 429, 5xx e 403/404 SEM corpo JSON da nossa API (ex.: HTML de proxy/túnel) —
+   * nesses casos a outbox agenda uma nova tentativa em vez de descartar o relato.
+   */
   get temporario(): boolean {
-    return this.status === 0 || this.status === 429 || this.status >= 500;
+    if (
+      this.status === 0 ||
+      this.status === 408 ||
+      this.status === 425 ||
+      this.status === 429
+    ) {
+      return true;
+    }
+    if (this.status >= 500) {
+      return true;
+    }
+    if ((this.status === 403 || this.status === 404) && !this.corpoJson) {
+      return true;
+    }
+    return false;
   }
 }
 
@@ -70,6 +91,19 @@ function extrairDetalhe(texto: string): string | null {
   return limpo;
 }
 
+function corpoEhJson(texto: string): boolean {
+  const limpo = texto.trim();
+  if (!limpo) {
+    return false;
+  }
+  try {
+    const corpo = JSON.parse(limpo) as unknown;
+    return corpo !== null && typeof corpo === 'object';
+  } catch {
+    return false;
+  }
+}
+
 function lerRetryAfter(resposta: Response): number | null {
   let valor: string | null = null;
   const cabecalhos = resposta.headers as unknown;
@@ -89,7 +123,38 @@ function lerRetryAfter(resposta: Response): number | null {
   return Number.isFinite(segundos) ? segundos : null;
 }
 
-async function pedir<T>(caminho: string, inicio: Inicio, op: Opcoes, lerJson: boolean): Promise<T> {
+function lerCelulasPendentes(resposta: Response): number {
+  let valor: string | null = null;
+  const cabecalhos = resposta.headers as unknown;
+
+  if (cabecalhos && typeof (cabecalhos as { get?: unknown }).get === 'function') {
+    const obter = (cabecalhos as { get: (nome: string) => string | null }).get.bind(cabecalhos);
+    valor = obter('X-Celulas-Pendentes') ?? obter('x-celulas-pendentes');
+  } else if (cabecalhos && typeof cabecalhos === 'object') {
+    const objeto = cabecalhos as Record<string, string>;
+    valor =
+      objeto['X-Celulas-Pendentes'] ?? objeto['x-celulas-pendentes'] ?? null;
+  }
+
+  if (valor == null) {
+    return 0;
+  }
+  const numero = Number.parseInt(valor, 10);
+  return Number.isFinite(numero) && numero > 0 ? numero : 0;
+}
+
+/**
+ * `statusEsperado` restringe o sucesso a um status exato (ex.: 202 do POST de relato) e
+ * `leitura` permite montar a resposta com dados do cabeçalho (ex.: X-Celulas-Pendentes).
+ */
+async function pedir<T>(
+  caminho: string,
+  inicio: Inicio,
+  op: Opcoes,
+  lerJson: boolean,
+  statusEsperado?: number,
+  leitura?: (resposta: Response, corpo: unknown) => T,
+): Promise<T> {
   const base = (op.base ?? endpoints.api).replace(/\/+$/, '');
   const url = `${base}${caminho}`;
   const executar = op.fetch ?? fetch;
@@ -123,18 +188,27 @@ async function pedir<T>(caminho: string, inicio: Inicio, op: Opcoes, lerJson: bo
         texto = '';
       }
       const detalhe = extrairDetalhe(texto) || resposta.statusText || `HTTP ${resposta.status}`;
-      throw new ApiErro(resposta.status, detalhe, lerRetryAfter(resposta));
+      throw new ApiErro(resposta.status, detalhe, lerRetryAfter(resposta), corpoEhJson(texto));
     }
 
-    if (!lerJson) {
-      return undefined as T;
+    if (statusEsperado !== undefined && resposta.status !== statusEsperado) {
+      // 2xx inesperado (ex.: 200 de portal cativo) não prova que o relato foi aceito.
+      throw new ApiErro(0, `resposta inesperada da API (HTTP ${resposta.status})`);
     }
 
-    try {
-      return (await resposta.json()) as T;
-    } catch {
-      throw new ApiErro(0, 'resposta inválida da API');
+    let corpo: unknown;
+    if (lerJson) {
+      try {
+        corpo = await resposta.json();
+      } catch {
+        throw new ApiErro(0, 'resposta inválida da API');
+      }
     }
+
+    if (leitura) {
+      return leitura(resposta, corpo);
+    }
+    return corpo as T;
   } finally {
     clearTimeout(temporizador);
     externo?.removeEventListener('abort', aoAbortar);
@@ -155,7 +229,7 @@ export async function buscarOcorrencia(id: number, op: Opcoes = {}): Promise<Oco
 }
 
 export async function enviarRelato(relato: RelatoEnvio, op: Opcoes = {}): Promise<void> {
-  // POST /v1/relatos → 202
+  // POST /v1/relatos → 202. Outro 2xx (ex.: 200 de portal cativo) não conta como enviado.
   await pedir<void>(
     '/v1/relatos',
     {
@@ -165,6 +239,7 @@ export async function enviarRelato(relato: RelatoEnvio, op: Opcoes = {}): Promis
     },
     op,
     false,
+    202,
   );
 }
 
@@ -236,13 +311,23 @@ export async function lerAmbiente(lat: number, lon: number, op: Opcoes = {}): Pr
   }
 }
 
-/** GET /v1/ambiente/camada?bbox=. Células geohash5 do retângulo visível com última leitura. */
-export async function lerCamada(bbox: Bbox, op: Opcoes = {}): Promise<CelulaAmbiente[]> {
-  return pedir<CelulaAmbiente[]>(
+/**
+ * GET /v1/ambiente/camada?bbox=. Células geohash5 do retângulo visível com última leitura.
+ * `X-Celulas-Pendentes` (ausente = 0) conta as células que o environment ainda está coletando.
+ */
+export type CamadaAmbiente = { celulas: CelulaAmbiente[]; pendentes: number };
+
+export async function lerCamada(bbox: Bbox, op: Opcoes = {}): Promise<CamadaAmbiente> {
+  return pedir<CamadaAmbiente>(
     `/v1/ambiente/camada?bbox=${bbox.lonMin},${bbox.latMin},${bbox.lonMax},${bbox.latMax}`,
     { method: 'GET' },
     op,
     true,
+    undefined,
+    (resposta, corpo) => ({
+      celulas: Array.isArray(corpo) ? (corpo as CelulaAmbiente[]) : [],
+      pendentes: lerCelulasPendentes(resposta),
+    }),
   );
 }
 

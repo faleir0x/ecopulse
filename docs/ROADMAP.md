@@ -73,5 +73,5 @@ Conferência com o texto da APS (seções II–V) mostrou lacunas; a proposta pe
 - [ ] **6.1** CD: publicação das imagens no GHCR (packages), com proveniência e SBOM; `docker-compose.ghcr.yml` sobe a stack pelas imagens. Falta: rodar em master/tag
 - [ ] **6.4** APK do app nas Releases do GitHub (workflow `apk.yml` por tag: expo prebuild + Gradle no runner, assinatura com apksigner). Falta: segredos no repositório e a 1ª tag
 - [ ] **6.5** Push remoto com Firebase (FCM): serviço `notifier` consumindo `ocorrencia.*` e enviando para os aparelhos das células; alerta com o app fechado (depende do APK da 6.4)
-- [ ] **6.2** Scripts dos cenários de demonstração (falhas, escala, offline)
-- [ ] **6.3** Base do relatório final (estrutura ABNT/UNIP) — por último
+- [x] **6.2** Scripts dos cenários de demonstração (falhas, escala, offline): `infra/demo/`, validados contra a stack local
+- [x] **6.3** Base do relatório final (estrutura ABNT/UNIP): `docs/relatorio/EcoPulse-relatorio-final.docx`; falta a equipe preencher os campos marcados

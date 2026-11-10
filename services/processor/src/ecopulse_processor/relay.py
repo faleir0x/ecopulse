@@ -14,6 +14,7 @@ from datetime import timedelta
 
 import asyncpg
 from aio_pika.abc import AbstractExchange
+from pydantic import ValidationError
 
 from ecopulse_common import messaging
 from ecopulse_common.events import Envelope
@@ -36,7 +37,10 @@ async def publicar_pendentes(
        messaging.publish(exchange, envelope) (routing key = tipo do evento)
     3. UPDATE outbox SET publicado_em = now() WHERE id = ANY($1)
     Se um publish falhar, a exceção sobe e a transação é desfeita (nada marcado).
-    Retorna quantas linhas publicou.
+    Linha que não valida como Envelope (ex.: tipo de evento novo durante uma atualização) não
+    trava o lote: é logada (id e erro, sem o payload) e marcada como publicada junto com as
+    demais para sair da fila.
+    Retorna quantas linhas processou.
     """
     async with pool.acquire() as conn, conn.transaction():
         linhas = await conn.fetch(
@@ -51,15 +55,23 @@ async def publicar_pendentes(
             lote,
         )
 
+        marcadas: list[int] = []
         for linha in linhas:
-            envelope = Envelope.model_validate_json(linha["envelope"])
-            await messaging.publish(exchange, envelope)
+            try:
+                envelope = Envelope.model_validate_json(linha["envelope"])
+            except ValidationError as exc:
+                log.error(
+                    "envelope inválido na outbox; linha descartada",
+                    extra={"id": linha["id"], "erro": str(exc)},
+                )
+            else:
+                await messaging.publish(exchange, envelope)
+            marcadas.append(linha["id"])
 
-        ids = [linha["id"] for linha in linhas]
-        if ids:
+        if marcadas:
             await conn.execute(
                 "UPDATE outbox SET publicado_em = now() WHERE id = ANY($1::bigint[])",
-                ids,
+                marcadas,
             )
 
     return len(linhas)
@@ -86,17 +98,22 @@ async def limpar_publicados(pool: asyncpg.Pool, retencao: timedelta = RETENCAO) 
 async def rodar(pool: asyncpg.Pool, exchange: AbstractExchange, parar: asyncio.Event) -> None:
     """Laço até `parar`: chama publicar_pendentes; se publicou um lote cheio, repete sem
     esperar (há fila acumulada); senão espera INTERVALO_S (ou até `parar`).
-    Erros são logados (log.exception) e o laço continua após INTERVALO_S."""
+    Erros são logados e o laço continua após INTERVALO_S. Falha na limpeza periódica só
+    gera warning: a próxima tentativa fica para daqui a INTERVALO_LIMPEZA_S."""
     proxima_limpeza = 0.0
 
     while not parar.is_set():
         try:
             agora = time.monotonic()
             if agora >= proxima_limpeza:
-                apagadas = await limpar_publicados(pool)
-                if apagadas:
-                    log.info("outbox limpa", extra={"total": apagadas})
                 proxima_limpeza = agora + INTERVALO_LIMPEZA_S
+                try:
+                    apagadas = await limpar_publicados(pool)
+                except Exception:
+                    log.warning("falha ao limpar a outbox", exc_info=True)
+                else:
+                    if apagadas:
+                        log.info("outbox limpa", extra={"total": apagadas})
 
             publicados = await publicar_pendentes(pool, exchange)
             if publicados >= LOTE:

@@ -149,6 +149,71 @@ async def test_falha_de_publish_nao_marca_nada(pool: asyncpg.Pool) -> None:
 
 
 @pytest.mark.integration
+async def test_envelope_invalido_e_descartado_sem_travar_o_lote(
+    pool: asyncpg.Pool, exchange: AbstractExchange, fila_eventos: AbstractQueue
+) -> None:
+    await processar_relato(pool, _envelope(*PONTOS[0]))
+    async with pool.acquire() as conn:
+        invalido = int(
+            await conn.fetchval(
+                """
+                INSERT INTO outbox (event_id, routing_key, envelope)
+                VALUES ($1, 'evento.novo',
+                        '{"type": "evento.novo", "geohash": "6gyf4b", "payload": {}}')
+                RETURNING id
+                """,
+                uuid4(),
+            )
+        )
+    for ponto in PONTOS[1:]:
+        await processar_relato(pool, _envelope(*ponto))
+
+    async with pool.acquire() as conn:
+        validos = [
+            linha["event_id"]
+            for linha in await conn.fetch(
+                "SELECT event_id FROM outbox WHERE id <> $1 ORDER BY id", invalido
+            )
+        ]
+
+    assert await relay.publicar_pendentes(pool, exchange) == 4
+    assert [mensagem.message_id for mensagem in await _receber(fila_eventos, 3)] == [
+        str(event_id) for event_id in validos
+    ]
+    assert await _pendentes(pool) == 0
+    async with pool.acquire() as conn:
+        assert await conn.fetchval("SELECT publicado_em FROM outbox WHERE id = $1", invalido)
+
+
+async def test_rodar_avanca_limpeza_mesmo_quando_ela_falha(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    chamadas = 0
+
+    async def limpar_com_falha(pool: asyncpg.Pool) -> int:
+        nonlocal chamadas
+        chamadas += 1
+        raise RuntimeError("banco fora do ar")
+
+    async def sem_pendentes(pool: asyncpg.Pool, exchange: AbstractExchange) -> int:
+        return 0
+
+    monkeypatch.setattr(relay, "limpar_publicados", limpar_com_falha)
+    monkeypatch.setattr(relay, "publicar_pendentes", sem_pendentes)
+    monkeypatch.setattr(relay, "INTERVALO_S", 0.01)
+
+    parar = asyncio.Event()
+    tarefa = asyncio.create_task(
+        relay.rodar(cast(asyncpg.Pool, None), cast(AbstractExchange, None), parar)
+    )
+    await asyncio.sleep(0.15)
+    parar.set()
+    await asyncio.wait_for(tarefa, timeout=5)
+
+    assert chamadas == 1
+
+
+@pytest.mark.integration
 async def test_limpar_publicados_respeita_retencao(pool: asyncpg.Pool) -> None:
     await _inserir_pendentes(pool)
 

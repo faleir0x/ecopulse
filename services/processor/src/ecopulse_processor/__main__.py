@@ -7,7 +7,9 @@
 - canal próprio de telemetria com set_qos(prefetch_count=50) para contar presença por célula
 - tarefa em paralelo: a cada regras.INTERVALO_EXPIRACAO_S chama expirar_ocorrencias
   (loga e continua em caso de erro)
-- SIGTERM/SIGINT: para de consumir, cancela a tarefa, fecha canais, conexão, Redis e pool
+- tarefa em paralelo: a cada retencao.INTERVALO_RETENCAO_S chama retencao.aplicar
+  (anonimiza relatos antigos e apaga leituras antigas; loga e continua em caso de erro)
+- SIGTERM/SIGINT: para de consumir, cancela as tarefas, fecha canais, conexão, Redis e pool
 """
 
 import asyncio
@@ -25,7 +27,7 @@ from ecopulse_common.consumer import PermanentError, consume
 from ecopulse_common.db import create_pool
 from ecopulse_common.events import Envelope, EventType
 from ecopulse_common.logs import configure_logging
-from ecopulse_processor import ambiente, regras, relay, telemetria
+from ecopulse_processor import ambiente, regras, relay, retencao, telemetria
 from ecopulse_processor.servico import (
     expirar_ocorrencias,
     processar_relato,
@@ -55,6 +57,22 @@ async def _expirar_periodicamente(pool: asyncpg.Pool, parar: asyncio.Event) -> N
             log.exception("falha na expiração periódica")
         with contextlib.suppress(TimeoutError):
             await asyncio.wait_for(parar.wait(), timeout=regras.INTERVALO_EXPIRACAO_S)
+
+
+async def _reter_periodicamente(pool: asyncpg.Pool, parar: asyncio.Event) -> None:
+    """Laço até `parar`: a cada INTERVALO_RETENCAO_S chama retencao.aplicar e loga os
+    números; erros viram warning e o laço continua."""
+    while not parar.is_set():
+        try:
+            anonimizados, leituras = await retencao.aplicar(pool)
+            log.info(
+                "retenção periódica concluída",
+                extra={"anonimizados": anonimizados, "leituras_apagadas": leituras},
+            )
+        except Exception:
+            log.warning("falha na retenção periódica", exc_info=True)
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(parar.wait(), timeout=retencao.INTERVALO_RETENCAO_S)
 
 
 async def main() -> None:
@@ -95,15 +113,19 @@ async def main() -> None:
         loop.add_signal_handler(sinal, parar.set)
 
     tarefa_expiracao = asyncio.create_task(_expirar_periodicamente(pool, parar))
+    tarefa_retencao = asyncio.create_task(_reter_periodicamente(pool, parar))
     tarefa_relay = asyncio.create_task(relay.rodar(pool, exchange, parar))
 
     await parar.wait()
     log.info("encerrando processor")
 
     tarefa_expiracao.cancel()
+    tarefa_retencao.cancel()
     tarefa_relay.cancel()
     with contextlib.suppress(asyncio.CancelledError):
         await tarefa_expiracao
+    with contextlib.suppress(asyncio.CancelledError):
+        await tarefa_retencao
     with contextlib.suppress(asyncio.CancelledError):
         await tarefa_relay
 

@@ -14,8 +14,7 @@ from ecopulse_environment.fontes import Fonte, FonteIndisponivel
 
 log = logging.getLogger(__name__)
 
-VERIFICAR_S = 30  # procura células novas/vencidas a cada 30 s
-PARALELO = 4  # leituras simultâneas na fonte externa
+VERIFICAR_S = 5  # procura células novas/vencidas a cada 5 s
 
 
 async def coletar_vencidas(
@@ -23,11 +22,12 @@ async def coletar_vencidas(
 ) -> int:
     """Uma rodada:
     1. celulas_ativas → coletadas_em → vencidas = nunca coletadas ou coletadas há >= intervalo_s
-    2. para cada vencida (até PARALELO ao mesmo tempo, asyncio.Semaphore): centro da célula
-       (geohash.decode_bbox), fonte.ler, publica Envelope(type=LEITURA_AMBIENTE,
+    2. fonte.ler_varias com todas as vencidas (o lote é responsabilidade da fonte); para cada
+       leitura devolvida, publica Envelope(type=LEITURA_AMBIENTE,
        geohash=geohash.encode(centro, 6), payload=leitura.model_dump(mode="json")) com
        messaging.publish, e só então marcar_coletada
-    3. FonteIndisponivel numa célula: loga warning e segue com as outras (tenta na próxima rodada)
+    3. células ausentes do retorno (falha da fonte) ficam para a próxima rodada, com um warning
+       agregado de quantas falharam
     Retorna quantas publicou.
     """
     celulas = await ambiente.celulas_ativas(redis, agora_s)
@@ -37,34 +37,45 @@ async def coletar_vencidas(
         for celula in celulas
         if celula not in coletadas or agora_s - coletadas[celula] >= intervalo_s
     ]
+    if not vencidas:
+        return 0
 
-    semaforo = asyncio.Semaphore(PARALELO)
+    centros: dict[str, tuple[float, float]] = {}
+    pontos: list[tuple[str, float, float]] = []
+    for celula in vencidas:
+        lat_min, lon_min, lat_max, lon_max = geohash.decode_bbox(celula)
+        latitude = (lat_min + lat_max) / 2
+        longitude = (lon_min + lon_max) / 2
+        centros[celula] = (latitude, longitude)
+        pontos.append((celula, latitude, longitude))
+
+    try:
+        leituras = await fonte.ler_varias(pontos)
+    except FonteIndisponivel:
+        log.warning("fonte indisponível; tentará na próxima rodada", extra={"total": len(vencidas)})
+        return 0
+
     publicadas = 0
+    for celula, leitura in leituras.items():
+        latitude, longitude = centros.get(celula, (leitura.latitude, leitura.longitude))
+        try:
+            envelope = Envelope(
+                type=EventType.LEITURA_AMBIENTE,
+                geohash=geohash.encode(latitude, longitude, geohash.CELL_PRECISION),
+                payload=leitura.model_dump(mode="json"),
+            )
+            await messaging.publish(exchange, envelope)
+            await ambiente.marcar_coletada(redis, celula, agora_s)
+            publicadas += 1
+        except Exception:
+            log.exception("falha ao publicar leitura", extra={"geohash": celula})
 
-    async def _coletar(celula: str) -> None:
-        nonlocal publicadas
-        async with semaforo:
-            try:
-                lat_min, lon_min, lat_max, lon_max = geohash.decode_bbox(celula)
-                latitude = (lat_min + lat_max) / 2
-                longitude = (lon_min + lon_max) / 2
-                leitura = await fonte.ler(celula, latitude, longitude)
-                envelope = Envelope(
-                    type=EventType.LEITURA_AMBIENTE,
-                    geohash=geohash.encode(latitude, longitude, geohash.CELL_PRECISION),
-                    payload=leitura.model_dump(mode="json"),
-                )
-                await messaging.publish(exchange, envelope)
-                await ambiente.marcar_coletada(redis, celula, agora_s)
-                publicadas += 1
-            except FonteIndisponivel:
-                log.warning(
-                    "fonte indisponível; tentará na próxima rodada", extra={"geohash": celula}
-                )
-            except Exception:
-                log.exception("falha ao coletar célula", extra={"geohash": celula})
+    faltantes = [celula for celula in vencidas if celula not in leituras]
+    if faltantes:
+        log.warning(
+            "células sem leitura; tentarão na próxima rodada", extra={"total": len(faltantes)}
+        )
 
-    await asyncio.gather(*(_coletar(celula) for celula in vencidas))
     return publicadas
 
 

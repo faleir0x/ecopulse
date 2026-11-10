@@ -15,6 +15,7 @@ GEOHASH5 = "6gycf"
 LATITUDE = -23.5505
 LONGITUDE = -46.6333
 AGORA = datetime(2026, 11, 8, 14, 30, tzinfo=UTC)
+ALFABETO_GEOHASH = "0123456789bcdefghjkmnpqrstuvwxyz"
 
 
 def _carregar(nome: str) -> dict[str, Any]:
@@ -53,7 +54,7 @@ async def test_open_meteo_caso_completo() -> None:
             return httpx.Response(200, json=ar)
         assert request.url.params["forecast_hours"] == "12"
         assert request.url.params["forecast_minutely_15"] == "12"
-        assert request.url.params["timezone"] == "UTC"
+        assert request.url.params["timezone"] == "auto"
         return httpx.Response(200, json=previsao)
 
     async with _cliente(handler) as cliente:
@@ -218,6 +219,128 @@ async def test_open_meteo_json_inesperado_levanta_fonte_indisponivel() -> None:
     async with _cliente(handler) as cliente:
         with pytest.raises(FonteIndisponivel):
             await OpenMeteo(cliente).ler(GEOHASH5, LATITUDE, LONGITUDE)
+
+
+def _pontos(quantidade: int) -> list[tuple[str, float, float]]:
+    return [
+        (
+            f"6gy{ALFABETO_GEOHASH[i // 32]}{ALFABETO_GEOHASH[i % 32]}",
+            LATITUDE + i * 0.001,
+            LONGITUDE + i * 0.001,
+        )
+        for i in range(quantidade)
+    ]
+
+
+async def test_open_meteo_ler_varias_agrupa_coordenadas_numa_chamada() -> None:
+    previsao = _carregar("openmeteo_previsao.json")
+    ar = _carregar("openmeteo_ar.json")
+    chamadas: list[tuple[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        chamadas.append((request.url.host, request.url.params["latitude"]))
+        if request.url.host == "air-quality-api.open-meteo.com":
+            return httpx.Response(200, json=[ar, ar, ar])
+        return httpx.Response(200, json=[previsao, previsao, previsao])
+
+    pontos = [
+        ("6gycf", LATITUDE, LONGITUDE),
+        ("6gyce", LATITUDE - 0.01, LONGITUDE - 0.01),
+        ("6gycg", LATITUDE + 0.01, LONGITUDE + 0.01),
+    ]
+
+    async with _cliente(handler) as cliente:
+        leituras = await OpenMeteo(cliente).ler_varias(pontos)
+
+    hosts = [host for host, _ in chamadas]
+    assert hosts.count("api.open-meteo.com") == 1
+    assert hosts.count("air-quality-api.open-meteo.com") == 1
+    assert set(leituras) == {geohash for geohash, _, _ in pontos}
+    assert len(leituras) == 3
+
+    latitudes = next(lat for host, lat in chamadas if host == "api.open-meteo.com")
+    assert latitudes.split(",") == [str(latitude) for _, latitude, _ in pontos]
+
+
+async def test_open_meteo_ler_varias_aceita_objeto_de_um_ponto() -> None:
+    previsao = _carregar("openmeteo_previsao.json")
+    ar = _carregar("openmeteo_ar.json")
+    handler = _handler(previsao=_resposta(previsao), ar=_resposta(ar))
+
+    async with _cliente(handler) as cliente:
+        leituras = await OpenMeteo(cliente).ler_varias([(GEOHASH5, LATITUDE, LONGITUDE)])
+
+    assert set(leituras) == {GEOHASH5}
+    assert leituras[GEOHASH5].temperatura == pytest.approx(16.1)
+
+
+async def test_open_meteo_ler_varias_divide_em_lotes_de_50() -> None:
+    previsao = _carregar("openmeteo_previsao.json")
+    ar = _carregar("openmeteo_ar.json")
+    tamanhos: list[int] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        quantidade = len(request.url.params["latitude"].split(","))
+        if request.url.host == "air-quality-api.open-meteo.com":
+            return httpx.Response(200, json=[ar] * quantidade)
+        tamanhos.append(quantidade)
+        return httpx.Response(200, json=[previsao] * quantidade)
+
+    pontos = _pontos(120)
+
+    async with _cliente(handler) as cliente:
+        leituras = await OpenMeteo(cliente).ler_varias(pontos)
+
+    assert tamanhos == [50, 50, 20]
+    assert len(leituras) == 120
+
+
+async def test_open_meteo_erro_num_lote_nao_derruba_os_outros() -> None:
+    previsao = _carregar("openmeteo_previsao.json")
+    ar = _carregar("openmeteo_ar.json")
+    chamadas_previsao = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal chamadas_previsao
+        quantidade = len(request.url.params["latitude"].split(","))
+        if request.url.host == "air-quality-api.open-meteo.com":
+            return httpx.Response(200, json=[ar] * quantidade)
+        chamadas_previsao += 1
+        if chamadas_previsao == 1:
+            return httpx.Response(500, json={})
+        return httpx.Response(200, json=[previsao] * quantidade)
+
+    pontos = _pontos(120)
+
+    async with _cliente(handler) as cliente:
+        leituras = await OpenMeteo(cliente).ler_varias(pontos)
+
+    assert chamadas_previsao == 3
+    assert len(leituras) == 70
+    assert pontos[0][0] not in leituras
+    assert pontos[49][0] not in leituras
+    assert pontos[50][0] in leituras
+    assert pontos[-1][0] in leituras
+
+
+async def test_open_meteo_converte_horario_local_para_utc() -> None:
+    previsao = _carregar("openmeteo_previsao.json")
+    previsao["utc_offset_seconds"] = -10800
+    previsao["current"]["time"] = "2026-11-10T21:00"
+    inicio = datetime(2026, 11, 10, 21, 0)
+    previsao["hourly"]["time"] = [(inicio + timedelta(hours=i)).isoformat() for i in range(12)]
+    previsao["minutely_15"]["time"] = [
+        (inicio + timedelta(minutes=15 * i)).isoformat() for i in range(12)
+    ]
+    ar = _carregar("openmeteo_ar.json")
+    handler = _handler(previsao=_resposta(previsao), ar=_resposta(ar))
+
+    async with _cliente(handler) as cliente:
+        leitura = await OpenMeteo(cliente).ler(GEOHASH5, LATITUDE, LONGITUDE)
+
+    assert leitura.medido_em == datetime(2026, 11, 11, 0, 0, tzinfo=UTC)
+    assert leitura.proximas_horas[0].hora == datetime(2026, 11, 11, 0, 0, tzinfo=UTC)
+    assert leitura.proximas_horas[-1].hora == datetime(2026, 11, 11, 11, 0, tzinfo=UTC)
 
 
 async def test_simulador_e_deterministico_por_semente_celula_e_hora() -> None:

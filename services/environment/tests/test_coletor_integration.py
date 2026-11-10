@@ -44,6 +44,17 @@ class FonteFalsa:
             raise FonteIndisponivel(geohash5)
         return await self._simulador.ler(geohash5, latitude, longitude)
 
+    async def ler_varias(
+        self, pontos: list[tuple[str, float, float]]
+    ) -> dict[str, LeituraAmbiente]:
+        leituras: dict[str, LeituraAmbiente] = {}
+        for geohash5, latitude, longitude in pontos:
+            try:
+                leituras[geohash5] = await self.ler(geohash5, latitude, longitude)
+            except FonteIndisponivel:
+                continue
+        return leituras
+
 
 def _envelopes(exchange: ExchangeFalso) -> list[Envelope]:
     return [Envelope.model_validate_json(message.body) for message, _ in exchange.mensagens]

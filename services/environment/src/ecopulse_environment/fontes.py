@@ -1,6 +1,7 @@
 """Fontes de leitura ambiental."""
 
 import asyncio
+import logging
 import random
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
@@ -10,9 +11,12 @@ import httpx
 from ecopulse_common.events import HoraPrevista, LeituraAmbiente
 from ecopulse_environment.inversao import avaliar_inversao
 
+log = logging.getLogger(__name__)
+
 URL_PREVISAO = "https://api.open-meteo.com/v1/forecast"
 URL_AR = "https://air-quality-api.open-meteo.com/v1/air-quality"
 TIMEOUT_S = 10.0
+LOTE_OPEN_METEO = 50
 
 HORAS = 12
 INTERVALOS_15MIN = 12
@@ -52,6 +56,57 @@ def _data_hora(valor: Any, nome: str) -> datetime:
     if quando.tzinfo is None:
         return quando.replace(tzinfo=UTC)
     return quando.astimezone(UTC)
+
+
+def _horario_utc(valor: Any, deslocamento: timedelta) -> Any:
+    """Horário local da Open-Meteo (sem fuso) → ISO 8601 em UTC."""
+    if not isinstance(valor, str):
+        return valor
+    quando = datetime.fromisoformat(valor)
+    if quando.tzinfo is not None:
+        return quando.astimezone(UTC).isoformat()
+    return (quando - deslocamento).replace(tzinfo=UTC).isoformat()
+
+
+def _em_utc(dados: dict[str, Any]) -> dict[str, Any]:
+    """Converte os horários de current/hourly/minutely_15 do fuso local para UTC.
+
+    Com timezone=auto a resposta traz horários locais sem fuso e utc_offset_seconds por local.
+    daily fica como está: as datas (e a mínima/máxima) já são do dia local.
+    """
+    deslocamento_s = dados.get("utc_offset_seconds", 0)
+    if isinstance(deslocamento_s, bool) or not isinstance(deslocamento_s, int | float):
+        deslocamento_s = 0
+    deslocamento = timedelta(seconds=deslocamento_s)
+    if not deslocamento:
+        return dados
+
+    ajustado = dict(dados)
+    for secao in ("current", "hourly", "minutely_15"):
+        bloco = dados.get(secao)
+        if not isinstance(bloco, dict):
+            continue
+        copia = dict(bloco)
+        tempos = bloco.get("time")
+        if isinstance(tempos, list):
+            copia["time"] = [_horario_utc(tempo, deslocamento) for tempo in tempos]
+        elif isinstance(tempos, str):
+            copia["time"] = _horario_utc(tempos, deslocamento)
+        else:
+            continue
+        ajustado[secao] = copia
+    return ajustado
+
+
+def _normalizar_resposta(valor: Any) -> list[dict[str, Any]]:
+    """Objeto (uma coordenada) ou lista (várias coordenadas) → lista de objetos."""
+    if isinstance(valor, dict):
+        return [_objeto(valor, "resposta")]
+    return [_objeto(item, "resposta") for item in _lista(valor, "resposta")]
+
+
+def _coordenadas(valores: list[float]) -> str:
+    return ",".join(str(valor) for valor in valores)
 
 
 def _aqi(dados: dict[str, Any]) -> int:
@@ -214,24 +269,30 @@ class Fonte(Protocol):
 
     async def ler(self, geohash5: str, latitude: float, longitude: float) -> LeituraAmbiente: ...
 
+    async def ler_varias(
+        self, pontos: list[tuple[str, float, float]]
+    ) -> dict[str, LeituraAmbiente]: ...
+
 
 class FonteIndisponivel(Exception):
     """A fonte externa falhou (rede, timeout, 5xx, resposta inesperada)."""
 
 
 class OpenMeteo:
-    """Open-Meteo (gratuita, sem chave). Duas chamadas em paralelo: previsão e qualidade do ar.
+    """Open-Meteo (gratuita, sem chave). Por lote, duas chamadas em paralelo: previsão e ar.
 
-    Previsão: current=temperature_2m,apparent_temperature,weather_code,precipitation,
+    As coordenadas vão numa só chamada por lote (até LOTE_OPEN_METEO), separadas por vírgula;
+    a resposta vem como lista (ou objeto quando há uma coordenada só). Previsão:
+    current=temperature_2m,apparent_temperature,weather_code,precipitation,
     wind_speed_10m,wind_direction_10m,wind_gusts_10m (km/h; vento é opcional);
     hourly=temperature_2m,weather_code,precipitation,temperature_925hPa,temperature_850hPa,
     geopotential_height_925hPa,geopotential_height_850hPa com forecast_hours=12 (níveis de
     pressão alimentam a detecção de inversão térmica; ausentes viram None);
     daily=temperature_2m_max,temperature_2m_min com forecast_days=1;
-    minutely_15=precipitation com forecast_minutely_15=12; timezone=UTC.
-    Ar: current=us_aqi.
-    Se só a chamada do ar falhar, a leitura sai com aqi=None (o resto continua valendo).
-    Qualquer outra falha → FonteIndisponivel.
+    minutely_15=precipitation com forecast_minutely_15=12; timezone=auto (horários locais
+    convertidos para UTC com utc_offset_seconds). Ar: current=us_aqi.
+    Se só a chamada do ar falhar, as leituras saem com aqi=None (o resto continua valendo).
+    Falha de previsão num lote → os pontos desse lote ficam de fora (os outros lotes seguem).
     """
 
     nome = "open-meteo"
@@ -239,12 +300,16 @@ class OpenMeteo:
     def __init__(self, cliente: httpx.AsyncClient) -> None:
         self.cliente = cliente
 
-    async def _buscar(self, url: str, parametros: dict[str, str | int | float]) -> dict[str, Any]:
+    async def _buscar(
+        self, url: str, parametros: dict[str, str | int | float]
+    ) -> list[dict[str, Any]]:
         resposta = await self.cliente.get(url, params=parametros)
         resposta.raise_for_status()
-        return _objeto(resposta.json(), "resposta")
+        return _normalizar_resposta(resposta.json())
 
-    async def ler(self, geohash5: str, latitude: float, longitude: float) -> LeituraAmbiente:
+    async def _ler_lote(self, lote: list[tuple[str, float, float]]) -> dict[str, LeituraAmbiente]:
+        latitude = _coordenadas([latitude for _, latitude, _ in lote])
+        longitude = _coordenadas([longitude for _, _, longitude in lote])
         parametros_previsao: dict[str, str | int | float] = {
             "latitude": latitude,
             "longitude": longitude,
@@ -262,7 +327,7 @@ class OpenMeteo:
             "forecast_days": 1,
             "minutely_15": "precipitation",
             "forecast_minutely_15": INTERVALOS_15MIN,
-            "timezone": "UTC",
+            "timezone": "auto",
         }
         parametros_ar: dict[str, str | int | float] = {
             "latitude": latitude,
@@ -271,7 +336,7 @@ class OpenMeteo:
             "timezone": "UTC",
         }
 
-        resultados: list[dict[str, Any] | BaseException] = list(
+        resultados: list[list[dict[str, Any]] | BaseException] = list(
             await asyncio.gather(
                 self._buscar(URL_PREVISAO, parametros_previsao),
                 self._buscar(URL_AR, parametros_ar),
@@ -284,20 +349,55 @@ class OpenMeteo:
             raise FonteIndisponivel(
                 f"previsão indisponível: {type(previsao).__name__}: {previsao}"
             ) from previsao
+        if len(previsao) != len(lote):
+            raise FonteIndisponivel(
+                f"previsão devolveu {len(previsao)} resultados para {len(lote)} coordenadas"
+            )
 
-        aqi: int | None = None
-        poluente: str | None = None
-        if not isinstance(ar, BaseException):
+        respostas_ar: list[dict[str, Any]] = [] if isinstance(ar, BaseException) else ar
+        leituras: dict[str, LeituraAmbiente] = {}
+        for indice, ((geohash5, lat, lon), dados) in enumerate(zip(lote, previsao, strict=True)):
+            aqi: int | None = None
+            poluente: str | None = None
+            if indice < len(respostas_ar):
+                try:
+                    aqi = _aqi(respostas_ar[indice])
+                    poluente = _poluente(respostas_ar[indice])
+                except (KeyError, TypeError, ValueError):
+                    aqi = None
+
             try:
-                aqi = _aqi(ar)
-                poluente = _poluente(ar)
-            except (KeyError, TypeError, ValueError):
-                aqi = None
+                leituras[geohash5] = _montar_leitura(
+                    _em_utc(dados), geohash5, lat, lon, aqi, poluente
+                )
+            except (KeyError, TypeError, ValueError, IndexError) as exc:
+                log.warning(
+                    "resposta inesperada da previsão; célula fica para a próxima rodada",
+                    extra={"geohash": geohash5, "erro": str(exc)},
+                )
+        return leituras
 
-        try:
-            return _montar_leitura(previsao, geohash5, latitude, longitude, aqi, poluente)
-        except (KeyError, TypeError, ValueError, IndexError) as exc:
-            raise FonteIndisponivel(f"resposta inesperada da previsão: {exc}") from exc
+    async def ler_varias(
+        self, pontos: list[tuple[str, float, float]]
+    ) -> dict[str, LeituraAmbiente]:
+        leituras: dict[str, LeituraAmbiente] = {}
+        for inicio in range(0, len(pontos), LOTE_OPEN_METEO):
+            lote = pontos[inicio : inicio + LOTE_OPEN_METEO]
+            try:
+                leituras.update(await self._ler_lote(lote))
+            except FonteIndisponivel as exc:
+                log.warning(
+                    "lote da Open-Meteo indisponível; células ficam para a próxima rodada",
+                    extra={"total": len(lote), "erro": str(exc)},
+                )
+        return leituras
+
+    async def ler(self, geohash5: str, latitude: float, longitude: float) -> LeituraAmbiente:
+        leituras = await self.ler_varias([(geohash5, latitude, longitude)])
+        leitura = leituras.get(geohash5)
+        if leitura is None:
+            raise FonteIndisponivel(f"leitura indisponível para {geohash5}")
+        return leitura
 
 
 class Simulador:
@@ -426,3 +526,11 @@ class Simulador:
             inversao_termica=inversao_delta_c > 0,
             inversao_delta_c=inversao_delta_c,
         )
+
+    async def ler_varias(
+        self, pontos: list[tuple[str, float, float]]
+    ) -> dict[str, LeituraAmbiente]:
+        leituras: dict[str, LeituraAmbiente] = {}
+        for geohash5, latitude, longitude in pontos:
+            leituras[geohash5] = await self.ler(geohash5, latitude, longitude)
+        return leituras

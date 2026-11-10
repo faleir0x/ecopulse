@@ -3,7 +3,6 @@ from uuid import UUID, uuid4
 
 import asyncpg
 import pytest
-from ecopulse_notifier import repositorio
 
 from ecopulse_common import geohash
 from ecopulse_common.events import (
@@ -12,6 +11,7 @@ from ecopulse_common.events import (
     StatusOcorrencia,
     TipoRisco,
 )
+from ecopulse_notifier import repositorio
 
 pytestmark = pytest.mark.integration
 

@@ -5,9 +5,6 @@ from uuid import uuid4
 
 import asyncpg
 import pytest
-from ecopulse_notifier import mensagem, repositorio, servico
-from ecopulse_notifier.fcm import ErroFcm, ErroPermanente, TokenInvalido
-from ecopulse_notifier.repositorio import Destino
 from redis.asyncio.cluster import RedisCluster
 
 from ecopulse_common import geohash
@@ -19,6 +16,9 @@ from ecopulse_common.events import (
     StatusOcorrencia,
     TipoRisco,
 )
+from ecopulse_notifier import mensagem, repositorio, servico
+from ecopulse_notifier.fcm import ErroFcm, ErroPermanente, TokenInvalido
+from ecopulse_notifier.repositorio import Destino
 
 AGORA = datetime(2026, 11, 9, 12, tzinfo=UTC)
 POOL = cast(asyncpg.Pool, object())

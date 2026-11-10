@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import AwareDatetime, BaseModel, Field
 
 from ecopulse_common.events import OcorrenciaPayload, Severidade, TipoRisco
 
@@ -15,7 +15,7 @@ class RelatoIn(BaseModel):
     descricao: str | None = Field(default=None, max_length=500)
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
-    registrado_em: datetime
+    registrado_em: AwareDatetime
 
 
 class RelatoAceito(BaseModel):
@@ -31,7 +31,7 @@ class TelemetriaIn(BaseModel):
     latitude: float = Field(ge=-90, le=90)
     longitude: float = Field(ge=-180, le=180)
     precisao_m: float | None = Field(default=None, ge=0, le=10_000)
-    registrado_em: datetime
+    registrado_em: AwareDatetime
 
 
 class Presenca(BaseModel):
@@ -46,7 +46,7 @@ class ConfirmacaoIn(BaseModel):
 
     client_id: UUID
     device_id: UUID
-    registrado_em: datetime
+    registrado_em: AwareDatetime
 
 
 class ResolucaoIn(BaseModel):
@@ -54,7 +54,7 @@ class ResolucaoIn(BaseModel):
 
     client_id: UUID
     device_id: UUID
-    registrado_em: datetime
+    registrado_em: AwareDatetime
 
 
 class AparelhoIn(BaseModel):
@@ -67,7 +67,7 @@ class AparelhoIn(BaseModel):
     raio_m: int = Field(ge=100, le=10_000)
     limiar: Severidade
     tipos: list[TipoRisco] = Field(max_length=len(TipoRisco))
-    silenciado_ate: datetime | None = None
+    silenciado_ate: AwareDatetime | None = None
 
 
 class SituacaoRelato(BaseModel):

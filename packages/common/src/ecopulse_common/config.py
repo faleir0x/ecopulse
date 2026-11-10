@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     # Nº de filas-partição do consistent hash exchange
     partitions: int = 3
     log_level: str = "INFO"
+    # Documentação interativa (/docs, /redoc, /openapi.json): desligue em produção
+    api_docs: bool = True
     # OpenRouteService: a chave fica só no servidor (nunca vai ao app)
     ors_api_key: str = ""
     ors_url: str = "https://api.openrouteservice.org"

@@ -1,3 +1,5 @@
+import asyncio
+import hashlib
 import ipaddress
 import logging
 import time
@@ -11,7 +13,7 @@ import asyncpg
 import httpx
 from aio_pika.abc import AbstractRobustConnection
 from aio_pika.exceptions import AMQPError
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response, status
 from redis.asyncio.cluster import RedisCluster
 from redis.exceptions import RedisError
 
@@ -53,6 +55,9 @@ from ecopulse_common.telemetria import JANELA_PRESENCA_S, contar_presenca
 
 log = logging.getLogger(__name__)
 
+# Publisher confirm sem prazo pendura a requisição com o broker em alarme de memória.
+TIMEOUT_PUBLICACAO_S = 5
+
 
 @dataclass
 class Broker:
@@ -83,7 +88,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await pool.close()
 
 
-app = FastAPI(title="EcoPulse API", version="0.1.0", lifespan=lifespan)
+_settings = Settings()
+app = FastAPI(
+    title="EcoPulse API",
+    version="0.1.0",
+    lifespan=lifespan,
+    docs_url="/docs" if _settings.api_docs else None,
+    redoc_url="/redoc" if _settings.api_docs else None,
+    openapi_url="/openapi.json" if _settings.api_docs else None,
+)
 
 
 def _broker(request: Request) -> Broker:
@@ -99,6 +112,11 @@ def _pool(request: Request) -> asyncpg.Pool:
 def _redis(request: Request) -> RedisCluster:
     redis: RedisCluster = request.app.state.redis
     return redis
+
+
+def _aparelho(device_id: UUID) -> str:
+    """Identificador anônimo do aparelho no log: sha256 truncado, nunca o UUID puro."""
+    return hashlib.sha256(str(device_id).encode()).hexdigest()[:12]
 
 
 def _exigir_limite(resultado: limite.Resultado, mensagem: str, contexto: dict[str, str]) -> None:
@@ -138,7 +156,7 @@ async def _aplicar_limite(request: Request, device_id: UUID) -> None:
     _exigir_limite(
         resultado_aparelho,
         "muitos relatos deste aparelho",
-        {"device_id": str(device_id)},
+        {"aparelho": _aparelho(device_id)},
     )
     ip = _ip_cliente(request)
     resultado_ip = await limite.consumir_ip(_redis(request), ip)
@@ -153,9 +171,17 @@ async def _publicar_evento(
     aceito: str,
     contexto: dict[str, str],
 ) -> None:
-    """Publica no exchange de eventos. Broker fora → 503 (o app mantém na outbox e tenta)."""
+    """Publica no exchange de eventos. Broker fora ou sem publisher confirm em 5 s → 503 (o
+    app mantém na outbox e tenta de novo)."""
     try:
-        await messaging.publish(_broker(request).topology.events, envelope)
+        async with asyncio.timeout(TIMEOUT_PUBLICACAO_S):
+            await messaging.publish(_broker(request).topology.events, envelope)
+    except TimeoutError as exc:
+        log.error("timeout ao publicar evento", extra=contexto)
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "fila indisponível; tente de novo",
+        ) from exc
     except (AMQPError, ConnectionError) as exc:
         log.error(falha, extra=contexto)
         raise HTTPException(
@@ -289,12 +315,14 @@ async def listar_ocorrencias(
 @app.get("/v1/ambiente/camada")
 async def ler_camada(
     request: Request,
+    response: Response,
     bbox: Annotated[str, Query(description="min_lon,min_lat,max_lon,max_lat")],
 ) -> list[CelulaAmbiente]:
     """Última leitura das células geohash5 do retângulo visível do mapa. Em áreas grandes a
     amostra vira uma grade regular de até MAX_CELULAS (a superfície do app interpola entre os
     centros). Registra interesse em todas as células amostradas (o environment coleta as que
-    faltam em até 30 s) e devolve só as que já têm leitura."""
+    faltam em até 30 s) e devolve só as que já têm leitura. O header X-Celulas-Pendentes diz
+    quantas células amostradas ainda não têm leitura (o app pode pedir de novo mais cedo)."""
     ip = _ip_cliente(request)
     _exigir_limite(
         await limite.consumir_ambiente(_redis(request), ip),
@@ -318,7 +346,11 @@ async def ler_camada(
             log.info("limite de células de interesse atingido")
             break
 
-    return await leitura.leituras_das_celulas(_pool(request), _redis(request), celulas)
+    leituras = await leitura.leituras_das_celulas(_pool(request), _redis(request), celulas)
+    respondidas = {item.geohash for item in leituras}
+    pendentes = sum(1 for celula in celulas if celula not in respondidas)
+    response.headers["X-Celulas-Pendentes"] = str(pendentes)
+    return leituras
 
 
 @app.get("/v1/ambiente")

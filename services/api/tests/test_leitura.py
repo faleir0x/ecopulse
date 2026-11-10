@@ -1,6 +1,9 @@
 from datetime import UTC, datetime, timedelta
+from typing import cast
 
+import asyncpg
 import pytest
+from redis.asyncio.cluster import RedisCluster
 
 from ecopulse_api import leitura
 from ecopulse_common import geohash
@@ -28,8 +31,9 @@ def _ocorrencia(
     latitude: float = LATITUDE,
     longitude: float = LONGITUDE,
     atualizada_em: datetime | None = None,
+    expira_em: datetime | None = None,
 ) -> OcorrenciaPayload:
-    quando = atualizada_em or datetime(2026, 11, 7, 12, tzinfo=UTC)
+    quando = atualizada_em or datetime.now(UTC)
     return OcorrenciaPayload(
         id=ocorrencia_id,
         tipo=tipo,
@@ -41,7 +45,7 @@ def _ocorrencia(
         status=StatusOcorrencia.ATIVA,
         criada_em=quando,
         atualizada_em=quando,
-        expira_em=quando + timedelta(hours=1),
+        expira_em=expira_em or datetime.now(UTC) + timedelta(hours=1),
     )
 
 
@@ -194,7 +198,7 @@ def test_bbox_invalido(min_lon: float, min_lat: float, max_lon: float, max_lat: 
 
 
 def test_filtrar_bbox_tipo_e_ordem() -> None:
-    base = datetime(2026, 11, 7, 12, tzinfo=UTC)
+    base = datetime.now(UTC)
     critico = _ocorrencia(
         1,
         severidade=Severidade.CRITICO,
@@ -240,3 +244,84 @@ def test_filtrar_inclui_bordas() -> None:
     filtradas = leitura.filtrar([ocorrencia], -9.15, 38.70, -9.12, 38.74, None)
 
     assert [item.id for item in filtradas] == [1]
+
+
+def test_filtrar_descarta_ocorrencia_vencida() -> None:
+    agora = datetime.now(UTC)
+    ativa = _ocorrencia(1)
+    vencida = _ocorrencia(2).model_copy(update={"expira_em": agora - timedelta(seconds=1)})
+
+    filtradas = leitura.filtrar([ativa, vencida], -9.15, 38.70, -9.12, 38.74, None)
+
+    assert [item.id for item in filtradas] == [1]
+
+
+def test_nota_publica_so_depois_de_outra_confirmacao() -> None:
+    assert leitura.nota_publica("Rua tomada pela água", 1) is None
+    assert leitura.nota_publica("Rua tomada pela água", 2) == "Rua tomada pela água"
+    assert leitura.nota_publica("", 2) is None
+    assert leitura.nota_publica("   ", 2) is None
+    assert leitura.nota_publica(None, 2) is None
+
+
+def test_nota_publica_remove_links_e_normaliza_espacos() -> None:
+    nota = leitura.nota_publica("  Olha   https://golpe.example/abc  e  www.spam.test  agora  ", 2)
+
+    assert nota == "Olha [link removido] e [link removido] agora"
+
+
+class _ConexaoVazia:
+    async def __aenter__(self) -> "_ConexaoVazia":
+        return self
+
+    async def __aexit__(self, *_: object) -> None:
+        return None
+
+    async def fetch(self, *_: object, **__: object) -> list[object]:
+        return []
+
+
+class _PoolVazio:
+    def acquire(self) -> _ConexaoVazia:
+        return _ConexaoVazia()
+
+
+class _PipelineCache:
+    def __init__(self, redis: "_RedisCache") -> None:
+        self._redis = redis
+
+    def set(self, chave: str, valor: str, ex: int | None = None) -> None:
+        self._redis.gravadas.append(chave)
+
+    def delete(self, *chaves: str) -> None:
+        self._redis.gravadas.extend(chaves)
+
+    async def execute(self) -> None:
+        return None
+
+
+class _RedisCache:
+    def __init__(self, marca_suja: bool) -> None:
+        self.marca_suja = marca_suja
+        self.gravadas: list[str] = []
+
+    async def mget_nonatomic(self, chaves: list[str]) -> list[str | None]:
+        if all(chave.endswith(":ocorrencias") for chave in chaves):
+            return [None] * len(chaves)
+        return ["1" if self.marca_suja and chave.endswith(":sujo") else None for chave in chaves]
+
+    def pipeline(self) -> _PipelineCache:
+        return _PipelineCache(self)
+
+
+async def _gravar_cache(marca_suja: bool) -> list[str]:
+    redis = _RedisCache(marca_suja)
+    await leitura.ocorrencias_por_celulas(
+        cast(asyncpg.Pool, _PoolVazio()), cast(RedisCluster, redis), ["eycs2"]
+    )
+    return redis.gravadas
+
+
+async def test_cache_nao_regrava_celula_marcada_como_suja() -> None:
+    assert await _gravar_cache(marca_suja=True) == []
+    assert await _gravar_cache(marca_suja=False) == ["cell:{eycs2}:ocorrencias"]

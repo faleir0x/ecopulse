@@ -9,6 +9,8 @@ Se o Redis falhar, a leitura cai direto no banco (log de warning) — o cache nu
 import json
 import logging
 import math
+import re
+from datetime import UTC, datetime
 from uuid import UUID
 
 import asyncpg
@@ -22,7 +24,12 @@ from ecopulse_common.events import LeituraAmbiente, OcorrenciaPayload, Severidad
 log = logging.getLogger(__name__)
 
 CACHE_TTL_S = 30
+# A marca de invalidação sobrevive ao DEL: um leitor que já consultou o banco não regrava a
+# lista velha por cima da invalidação.
+MARCA_SUJA_TTL_S = 5
 MAX_CELULAS = 64
+
+_URL = re.compile(r"https?://\S+|www\.\S+", re.IGNORECASE)
 
 _ORDEM_SEVERIDADE: dict[Severidade, int] = {
     Severidade.BAIXO: 0,
@@ -34,6 +41,23 @@ _ORDEM_SEVERIDADE: dict[Severidade, int] = {
 
 def chave_celula(geohash5: str) -> str:
     return f"cell:{{{geohash5}}}:ocorrencias"
+
+
+def chave_suja(geohash5: str) -> str:
+    """Marca (mesma hash tag) de que a célula foi invalidada e não deve ser recacheada."""
+    return f"cell:{{{geohash5}}}:sujo"
+
+
+def nota_publica(descricao: str | None, confirmacoes: int) -> str | None:
+    """Texto anônimo só aparece depois de outra pessoa confirmar (>= 2) e sem links.
+
+    A descrição vem de um relato anônimo; expor o texto antes de confirmações independentes
+    facilita golpe com link e desinformação. Também remove URLs e normaliza os espaços.
+    """
+    if confirmacoes < 2 or descricao is None:
+        return None
+    texto = " ".join(_URL.sub("[link removido]", descricao).split())
+    return texto or None
 
 
 def _faixa_de_celulas(
@@ -215,7 +239,9 @@ async def ocorrencias_por_celulas(
     2. para as células sem cache: UMA query no banco com status='ativa' AND expira_em > now()
        AND left(geohash, 5) = ANY($1); agrupa por célula (célula sem ocorrência = lista vazia,
        também cacheada)
-    3. grava cada célula que faltava com SET ex=CACHE_TTL_S (pipeline do cluster)
+    3. lê as marcas `sujo` das células que faltavam (MGET) e grava só as não marcadas com
+       SET ex=CACHE_TTL_S (pipeline do cluster). A marca evita que um leitor que consultou o
+       banco antes da invalidação regrave a lista velha por cima do cache.
     Qualquer erro do Redis (redis.exceptions.RedisError) → loga warning e usa só o banco.
     Mesma forma de ler lat/lon que o processor: ST_Y/ST_X(geom::geometry).
     """
@@ -240,13 +266,23 @@ async def ocorrencias_por_celulas(
 
         if cache_disponivel:
             try:
-                pipeline = redis.pipeline()
-                for celula in faltantes:
-                    lista = [item.model_dump(mode="json") for item in por_celula[celula]]
-                    pipeline.set(chave_celula(celula), json.dumps(lista), ex=CACHE_TTL_S)
-                await pipeline.execute()
+                marcas = await redis.mget_nonatomic([chave_suja(celula) for celula in faltantes])
             except RedisError:
-                log.warning("falha ao gravar o cache de ocorrências; seguindo com o banco")
+                log.warning("falha ao ler marcas de invalidação; não regravando o cache")
+                gravaveis: list[str] = []
+            else:
+                gravaveis = [
+                    celula for celula, marca in zip(faltantes, marcas, strict=True) if marca is None
+                ]
+            if gravaveis:
+                try:
+                    pipeline = redis.pipeline()
+                    for celula in gravaveis:
+                        lista = [item.model_dump(mode="json") for item in por_celula[celula]]
+                        pipeline.set(chave_celula(celula), json.dumps(lista), ex=CACHE_TTL_S)
+                    await pipeline.execute()
+                except RedisError:
+                    log.warning("falha ao gravar o cache de ocorrências; seguindo com o banco")
 
     resultado: list[OcorrenciaPayload] = []
     for celula, valor in zip(celulas, valores, strict=True):
@@ -265,12 +301,15 @@ def filtrar(
     max_lat: float,
     tipo: TipoRisco | None,
 ) -> list[OcorrenciaPayload]:
-    """Só as que estão dentro do bbox (bordas inclusas) e do tipo, se informado.
-    Ordem: severidade decrescente (critico primeiro), depois atualizada_em decrescente."""
+    """Só as ativas (expira_em no futuro), dentro do bbox (bordas inclusas) e do tipo, se
+    informado. Ordem: severidade decrescente (critico primeiro), depois atualizada_em
+    decrescente."""
+    agora = datetime.now(UTC)
     dentro = [
         ocorrencia
         for ocorrencia in ocorrencias
-        if min_lon <= ocorrencia.longitude <= max_lon
+        if ocorrencia.expira_em > agora
+        and min_lon <= ocorrencia.longitude <= max_lon
         and min_lat <= ocorrencia.latitude <= max_lat
         and (tipo is None or ocorrencia.tipo == tipo)
     ]
@@ -354,7 +393,7 @@ async def detalhar_ocorrencia(pool: asyncpg.Pool, ocorrencia_id: int) -> Ocorren
     return OcorrenciaDetalhe(
         **ocorrencia.model_dump(),
         linha_do_tempo=[linha["recebido_em"] for linha in momentos],
-        nota=nota,
+        nota=nota_publica(nota, ocorrencia.confirmacoes),
     )
 
 

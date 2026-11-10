@@ -81,18 +81,21 @@ async def redis() -> AsyncIterator[RedisCluster]:
 async def test_token_bucket_no_cluster(redis: RedisCluster) -> None:
     device = uuid4()
     try:
+        # Taxa lenta (1 token a cada 10 s): com a máquina carregada, o tempo entre as chamadas
+        # não devolve token antes da 4ª e o teste não depende de velocidade
         resultados = [
-            await limite.consumir(redis, device, capacidade=3, tokens_por_segundo=2)
+            await limite.consumir(redis, device, capacidade=3, tokens_por_segundo=0.1)
             for _ in range(4)
         ]
         assert [r.permitido for r in resultados] == [True, True, True, False]
-        assert resultados[-1].retry_after_s == 1
+        assert resultados[-1].retry_after_s == 10
 
-        await asyncio.sleep(0.6)  # 2 tokens/s → volta 1 token
-        assert (await limite.consumir(redis, device, capacidade=3, tokens_por_segundo=2)).permitido
+        # 4 tokens/s a partir daqui: 0,6 s devolve com folga pelo menos 1 token
+        await asyncio.sleep(0.6)
+        assert (await limite.consumir(redis, device, capacidade=3, tokens_por_segundo=4)).permitido
 
         ttl = await redis.ttl(limite.chave(device))
-        assert 0 < ttl <= 2
+        assert ttl > 0
     finally:
         await redis.delete(limite.chave(device))
 

@@ -88,3 +88,25 @@ def test_broker_fora_responde_503(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert resposta.status_code == 503
     assert resposta.headers["retry-after"] == "5"
+
+
+def test_publicacao_sem_prazo_responde_503(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def demora(*_: Any, **__: Any) -> None:
+        raise TimeoutError
+
+    monkeypatch.setattr(messaging, "publish", demora)
+    main.app.state.broker = MagicMock()
+    main.app.state.redis = RedisLiberado()
+    resposta = TestClient(main.app).post("/v1/relatos", json=_relato())
+
+    assert resposta.status_code == 503
+    assert resposta.json()["detail"] == "fila indisponível; tente de novo"
+
+
+def test_rejeita_data_sem_fuso(publicados: list[Envelope]) -> None:
+    resposta = TestClient(main.app).post(
+        "/v1/relatos", json=_relato(registrado_em="2026-11-07T12:00:00")
+    )
+
+    assert resposta.status_code == 422
+    assert publicados == []

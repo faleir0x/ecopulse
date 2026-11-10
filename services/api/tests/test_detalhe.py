@@ -6,15 +6,18 @@ import pytest
 from ecopulse_api import leitura
 
 
-async def _ocorrencia_com_relatos(pool: asyncpg.Pool, notas: list[str | None]) -> int:
+async def _ocorrencia_com_relatos(
+    pool: asyncpg.Pool, notas: list[str | None], confirmacoes: int = 2
+) -> int:
     async with pool.acquire() as conn:
         ocorrencia_id: int = await conn.fetchval(
             """
-            INSERT INTO ocorrencias (tipo, severidade, geom, geohash, expira_em)
+            INSERT INTO ocorrencias (tipo, severidade, geom, geohash, confirmacoes, expira_em)
             VALUES ('alagamento', 'alto', ST_SetSRID(ST_MakePoint(-9.14, 38.72), 4326)::geography,
-                    'eyckpt', now() + interval '1 hour')
+                    'eyckpt', $1, now() + interval '1 hour')
             RETURNING id
-            """
+            """,
+            confirmacoes,
         )
         for indice, nota in enumerate(notas):
             await conn.execute(
@@ -46,6 +49,16 @@ async def test_detalhe_traz_linha_do_tempo_e_nota_mais_recente(pool: asyncpg.Poo
     assert len(detalhe.linha_do_tempo) == 3
     assert detalhe.linha_do_tempo == sorted(detalhe.linha_do_tempo)
     assert detalhe.nota == "Baixou um pouco"
+
+
+@pytest.mark.integration
+async def test_detalhe_esconde_nota_sem_confirmacao_de_outra_pessoa(pool: asyncpg.Pool) -> None:
+    ocorrencia_id = await _ocorrencia_com_relatos(pool, ["Rua tomada pela água"], confirmacoes=1)
+
+    detalhe = await leitura.detalhar_ocorrencia(pool, ocorrencia_id)
+
+    assert detalhe is not None
+    assert detalhe.nota is None
 
 
 @pytest.mark.integration

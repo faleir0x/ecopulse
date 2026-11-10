@@ -1,27 +1,27 @@
 /**
- * Alertas em tempo real: WebSocket /v1/ws assinando as células do raio de alerta, regras de
- * filtro (features/alertas/regras.ts), lista persistida, notificação local e atualização do
- * mapa. A reconexão do WebSocket também dispara o envio da fila de relatos (o servidor voltou).
+ * Alertas em tempo real: WebSocket /v1/ws assinando as células do raio de alerta, lista
+ * persistida, notificação local e atualização do mapa. A decisão "avisar ou não" fica no motor
+ * puro (features/alertas/motor.ts); aqui só se lê/grava o Storage, aplica o estado devolvido e
+ * dispara as notificações. A reconexão do WebSocket também reenvia a fila de relatos.
  */
 import { useQueryClient } from '@tanstack/react-query';
 import * as Notifications from 'expo-notifications';
-import { AndroidImportance } from 'expo-notifications';
 import { router } from 'expo-router';
 import Storage from 'expo-sqlite/kv-store';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { AppState, Platform } from 'react-native';
+import { Platform } from 'react-native';
 
 import { endpoints } from '@/config/endpoints';
-import { ROTULO_SEVERIDADE, ROTULO_TIPO, type Severidade } from '@/domain/tipos';
+import { ROTULO_SEVERIDADE, ROTULO_TIPO } from '@/domain/tipos';
 import { RAIO_INFLUENCIA_MAX_M } from '@/domain/zonaInfluencia';
 import {
-  acrescentar,
-  avaliar,
-  avisarZona,
-  respostaNova,
-  type ItemAlerta,
-} from '@/features/alertas/regras';
-import { avaliarZonas } from '@/features/alertas/zona';
+  aoAvaliarZonas,
+  aoReceberEvento,
+  type EstadoAlertas,
+  type Preferencias,
+} from '@/features/alertas/motor';
+import { ACAO_SILENCIAR, CANAL, CATEGORIA } from '@/features/alertas/notificacoes';
+import { respostaNova, type ItemAlerta } from '@/features/alertas/regras';
 import { bboxDoRaio } from '@/features/agora/escalas';
 import { useOcorrencias } from '@/features/ocorrencias';
 import { useLocalizacao } from '@/features/localizacao';
@@ -48,30 +48,32 @@ function lerZonas(): Set<number> {
   }
 }
 
-// Canal Android próprio, prioridade alta (banner por cima de outros apps), com duas ações
-const CANAL = 'alertas-risco';
-const CATEGORIA = 'alerta-risco';
-const ACAO_SILENCIAR = 'silenciar-1h';
+function lerZonasIniciadas(): boolean {
+  try {
+    return Storage.getItemSync(CHAVE_ZONAS_INICIADAS) != null;
+  } catch {
+    return false;
+  }
+}
+
+function salvarZonas(dentro: ReadonlySet<number>): void {
+  try {
+    Storage.setItemSync(CHAVE_ZONAS, JSON.stringify([...dentro]));
+  } catch {
+    // sem persistência: no pior caso avisa de novo ao reabrir o app
+  }
+}
+
+function salvarZonasIniciadas(): void {
+  try {
+    Storage.setItemSync(CHAVE_ZONAS_INICIADAS, '1');
+  } catch {
+    // sem persistência: a próxima sessão semeia de novo
+  }
+}
+
 const CHAVE_SILENCIO = 'alertas.silencioAte.v1';
 const SILENCIO_MS = 60 * 60_000;
-
-void (async () => {
-  try {
-    if (Platform.OS === 'android') {
-      await Notifications.setNotificationChannelAsync(CANAL, {
-        name: 'Alertas de risco',
-        importance: AndroidImportance.HIGH,
-        vibrationPattern: [0, 250, 150, 250],
-      });
-    }
-    await Notifications.setNotificationCategoryAsync(CATEGORIA, [
-      { identifier: 'ver-no-mapa', buttonTitle: 'Ver no mapa', options: { opensAppToForeground: true } },
-      { identifier: ACAO_SILENCIAR, buttonTitle: 'Silenciar 1 h', options: { opensAppToForeground: false } },
-    ]);
-  } catch {
-    // Sem canal/categoria a notificação cai no canal padrão, sem ações
-  }
-})();
 
 function lerUltimaResposta(): string | null {
   try {
@@ -108,26 +110,7 @@ function silenciar(): number {
 }
 
 // Push remoto com o app aberto não repete o alerta local (o WebSocket já avisou)
-Notifications.setNotificationHandler({
-  handleNotification: async (notification) => {
-    const gatilho = notification.request.trigger;
-    const remota = gatilho != null && 'type' in gatilho && gatilho.type === 'push';
-    if (remota && AppState.currentState === 'active') {
-      return {
-        shouldShowBanner: false,
-        shouldShowList: false,
-        shouldPlaySound: false,
-        shouldSetBadge: false,
-      };
-    }
-    return {
-      shouldShowBanner: true,
-      shouldShowList: true,
-      shouldPlaySound: true,
-      shouldSetBadge: false,
-    };
-  },
-});
+// — o handler é registrado em features/alertas/notificacoes.ts (configurarNotificacoes).
 
 type Contexto = {
   alertas: ItemAlerta[];
@@ -195,11 +178,39 @@ export function AlertasProvider({ children }: { children: ReactNode }) {
 
   usePushRemoto({ posicao, raioM, limiar, tiposAtivos, silenciadoAte: silencioAte });
 
+  // Espelhos do estado do motor: os callbacks do WebSocket e da zona leem sempre o valor atual.
+  const alertasRef = useRef<ItemAlerta[]>(alertas);
+  const dentro = useRef<ReadonlySet<number>>(lerZonas());
+  const zonasIniciadas = useRef(lerZonasIniciadas());
+
   // Valores atuais para o callback do WebSocket sem reconectar a cada mudança
-  const contexto = useRef({ posicao, raioM, limiar, tiposAtivos, alertas });
+  const prefs = useRef<Preferencias>({ posicao, raioM, limiar, tiposAtivos });
   useEffect(() => {
-    contexto.current = { posicao, raioM, limiar, tiposAtivos, alertas };
+    prefs.current = { posicao, raioM, limiar, tiposAtivos };
   });
+
+  /** Troca a lista em memória e no Storage; o ref evita leituras desatualizadas nos callbacks. */
+  const aplicarLista = useCallback((lista: ItemAlerta[]) => {
+    alertasRef.current = lista;
+    salvar(lista);
+    setAlertas(lista);
+  }, []);
+
+  /** Aplica o estado devolvido pelo motor, persistindo só o que mudou (como antes). */
+  const aplicarEstado = useCallback(
+    (novo: EstadoAlertas) => {
+      if (novo.alertas !== alertasRef.current) aplicarLista(novo.alertas);
+      if (novo.zonas !== dentro.current) {
+        dentro.current = novo.zonas;
+        salvarZonas(novo.zonas);
+      }
+      if (novo.zonasIniciadas !== zonasIniciadas.current) {
+        zonasIniciadas.current = novo.zonasIniciadas;
+        salvarZonasIniciadas();
+      }
+    },
+    [aplicarLista],
+  );
 
   const cliente = useMemo(() => new ClienteRealtime({ url: endpoints.ws }), []);
 
@@ -209,17 +220,15 @@ export function AlertasProvider({ children }: { children: ReactNode }) {
       void clienteQuery.invalidateQueries({ queryKey: ['ocorrencias'] });
       void clienteQuery.invalidateQueries({ queryKey: ['ocorrencia', evento.ocorrencia.id] });
 
-      const atual = contexto.current;
-      const jaAlertada = new Map<number, Severidade>();
-      for (const a of [...atual.alertas].reverse()) jaAlertada.set(a.ocorrencia.id, a.ocorrencia.severidade);
-      const item = avaliar(evento, { ...atual, jaAlertada }, new Date());
-      if (!item) return;
-      setAlertas((lista) => {
-        const nova = acrescentar(lista, item);
-        salvar(nova);
-        return nova;
-      });
-      void notificar(item);
+      const resultado = aoReceberEvento(
+        { alertas: alertasRef.current, zonas: dentro.current, zonasIniciadas: zonasIniciadas.current },
+        evento,
+        prefs.current,
+        new Date(),
+      );
+      if (resultado.avisos.length === 0) return;
+      aplicarEstado(resultado.estado);
+      for (const aviso of resultado.avisos) void notificar(aviso.item);
     });
     const semEstado = cliente.aoMudarEstado((estado) => {
       setConexao(estado);
@@ -235,7 +244,7 @@ export function AlertasProvider({ children }: { children: ReactNode }) {
       semEstado();
       cliente.fechar();
     };
-  }, [cliente, clienteQuery, sincronizarAgora]);
+  }, [cliente, clienteQuery, sincronizarAgora, aplicarEstado]);
 
   // Assina as células que cobrem o raio em volta da posição atual
   const celulas = useMemo(
@@ -256,76 +265,31 @@ export function AlertasProvider({ children }: { children: ReactNode }) {
     return bboxDoRaio(centro, RAIO_INFLUENCIA_MAX_M + 1000);
   }, [celulaAtual]);
   const proximas = useOcorrencias(bboxZona, null);
-  const dentro = useRef<Set<number>>(lerZonas());
-  const zonasIniciadas = useRef(false);
 
   useEffect(() => {
     if (!posicao || !proximas.data) return;
-    const { entrou, dentro: novo } = avaliarZonas(proximas.data, posicao, dentro.current, {
-      limiar,
-      tiposAtivos,
-    });
-    dentro.current = novo;
-    try {
-      Storage.setItemSync(CHAVE_ZONAS, JSON.stringify([...novo]));
-    } catch {
-      // sem persistência: no pior caso avisa de novo ao reabrir o app
-    }
+    const resultado = aoAvaliarZonas(
+      { alertas: alertasRef.current, zonas: dentro.current, zonasIniciadas: zonasIniciadas.current },
+      proximas.data,
+      { posicao, raioM, limiar, tiposAtivos },
+      new Date(),
+    );
+    aplicarEstado(resultado.estado);
+    for (const aviso of resultado.avisos) void notificar(aviso.item, true);
+  }, [posicao, raioM, proximas.data, limiar, tiposAtivos, aplicarEstado]);
 
-    // Primeira avaliação: semeia o conjunto em silêncio para não avisar em rajada
-    if (!zonasIniciadas.current) {
-      let iniciado = false;
-      try {
-        iniciado = Storage.getItemSync(CHAVE_ZONAS_INICIADAS) != null;
-      } catch {
-        // sem persistência: semeia só nesta sessão
-      }
-      zonasIniciadas.current = true;
-      if (!iniciado) {
-        try {
-          Storage.setItemSync(CHAVE_ZONAS_INICIADAS, '1');
-        } catch {
-          // sem persistência: a próxima sessão semeia de novo
-        }
-        return;
-      }
-    }
-
-    for (const { ocorrencia, distanciaM } of entrou) {
-      const agora = new Date();
-      if (!avisarZona(ocorrencia.id, contexto.current.alertas, agora)) continue;
-      const item: ItemAlerta = {
-        chave: `zona:${ocorrencia.id}:${agora.getTime()}`,
-        ocorrencia,
-        distanciaM,
-        recebidoEm: agora.toISOString(),
-        lido: false,
-      };
-      setAlertas((lista) => {
-        const nova = acrescentar(lista, item);
-        salvar(nova);
-        return nova;
-      });
-      void notificar(item, true);
-    }
-  }, [posicao, proximas.data, limiar, tiposAtivos]);
-
-  const marcarLido = useCallback((chave: string) => {
-    setAlertas((lista) => {
-      const nova = lista.map((a) => (a.chave === chave ? { ...a, lido: true } : a));
-      salvar(nova);
-      return nova;
-    });
-  }, []);
+  const marcarLido = useCallback(
+    (chave: string) => {
+      aplicarLista(alertasRef.current.map((a) => (a.chave === chave ? { ...a, lido: true } : a)));
+    },
+    [aplicarLista],
+  );
 
   const marcarTodosLidos = useCallback(() => {
-    setAlertas((lista) => {
-      if (lista.every((a) => a.lido)) return lista;
-      const nova = lista.map((a) => (a.lido ? a : { ...a, lido: true }));
-      salvar(nova);
-      return nova;
-    });
-  }, []);
+    const lista = alertasRef.current;
+    if (lista.every((a) => a.lido)) return;
+    aplicarLista(lista.map((a) => (a.lido ? a : { ...a, lido: true })));
+  }, [aplicarLista]);
 
   const abrir = useCallback(
     (item: ItemAlerta) => {
@@ -352,7 +316,7 @@ export function AlertasProvider({ children }: { children: ReactNode }) {
       }
       const id = Number(resposta.notification.request.content.data?.ocorrenciaId);
       if (!Number.isFinite(id)) return;
-      const item = contexto.current.alertas.find((a) => a.ocorrencia.id === id);
+      const item = alertasRef.current.find((a) => a.ocorrencia.id === id);
       if (item) abrir(item);
       else {
         setOcorrenciaFoco(id);

@@ -1,5 +1,5 @@
 import { useMutation } from '@tanstack/react-query';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 
 import { ApiErro, calcularRota } from '@/api/cliente';
 import type { ModoRota, RotaSegura } from '@/domain/tipos';
@@ -35,49 +35,67 @@ export function useRotaSegura(origem: Coordenada | null): RotaSeguraEstado {
   const [fase, setFase] = useState<FaseRota>('destino');
   const [destino, setDestinoEstado] = useState<Coordenada | null>(null);
   const [modo, setModoEstado] = useState<ModoRota>('pedestre');
+  // Cada cálculo leva um token; trocar destino/modo/sair invalida os que estão no ar
+  const tokenRef = useRef(0);
+  const invalidarCalculo = useCallback(() => {
+    tokenRef.current += 1;
+  }, []);
 
-  const calculo = useMutation<RotaSegura, ApiErro, { origem: Coordenada; destino: Coordenada; modo: ModoRota }>({
+  const calculo = useMutation<
+    RotaSegura,
+    ApiErro,
+    { origem: Coordenada; destino: Coordenada; modo: ModoRota; token: number }
+  >({
     mutationFn: (p) => calcularRota(p.origem, p.destino, p.modo),
-    onSuccess: () => setFase('resultado'),
+    onSuccess: (_rota, variaveis) => {
+      // Só a resposta do cálculo mais recente muda a fase: a de um cálculo antigo é ignorada
+      if (variaveis.token === tokenRef.current) setFase('resultado');
+    },
   });
   const { reset, mutate } = calculo;
 
   const setDestino = useCallback(
     (novo: Coordenada | null) => {
+      invalidarCalculo();
       reset();
       setFase('destino');
       setDestinoEstado(novo);
     },
-    [reset],
+    [invalidarCalculo, reset],
   );
 
   const setModo = useCallback(
     (novo: ModoRota) => {
+      invalidarCalculo();
       reset();
       setFase('destino');
       setModoEstado(novo);
     },
-    [reset],
+    [invalidarCalculo, reset],
   );
 
   const calcular = useCallback(() => {
     if (!origem || !destino) return;
-    mutate({ origem, destino, modo });
+    const token = tokenRef.current + 1;
+    tokenRef.current = token;
+    mutate({ origem, destino, modo, token });
   }, [origem, destino, modo, mutate]);
 
   const seguir = useCallback(() => setFase('seguindo'), []);
 
   const voltar = useCallback(() => {
+    invalidarCalculo();
     reset();
     setFase('destino');
-  }, [reset]);
+  }, [invalidarCalculo, reset]);
 
   const limpar = useCallback(() => {
+    invalidarCalculo();
     reset();
     setFase('destino');
     setDestinoEstado(null);
     setModoEstado('pedestre');
-  }, [reset]);
+  }, [invalidarCalculo, reset]);
 
   return {
     fase,

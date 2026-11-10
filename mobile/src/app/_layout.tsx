@@ -13,6 +13,7 @@ import { useEffect } from 'react';
 import { AppState } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
+import { configurarNotificacoes } from '@/features/alertas/notificacoes';
 import { useTelemetria } from '@/features/telemetria';
 import { fontes } from '@/theme/fontes';
 import { AjustesProvider } from '@/state/ajustes';
@@ -41,6 +42,9 @@ const clienteQuery = new QueryClient({
 });
 
 SplashScreen.preventAutoHideAsync();
+
+// Canal, categoria e handler de notificação: uma vez por sessão, fora do componente.
+configurarNotificacoes();
 
 export default function RootLayout() {
   const [carregadas, erro] = useFonts(fontes);

@@ -59,6 +59,7 @@ import { ocorrenciasNoRaio } from './ordenar';
 import { bboxDoRaio } from '@/features/agora/escalas';
 import { decodeBbox, encode } from '@/lib/geohash';
 import { SeletorCamada } from './SeletorCamada';
+import { useAcaoComDesfazer } from './useAcaoComDesfazer';
 import { useCamada, type Camada } from './useCamada';
 import { useEndereco } from './useEndereco';
 import { UserMarker } from './UserMarker';
@@ -69,9 +70,6 @@ const SEM_CELULAS: CelulaAmbiente[] = [];
 
 /** Zoom ao seguir a rota: perto o bastante para ver a próxima esquina. */
 const ZOOM_SEGUINDO = 17;
-
-/** Ids marcados como "Já passou" nesta sessão (ainda não há endpoint). */
-const RESOLVIDOS = new Set<number>();
 
 function bboxDaRegiao(regiao: Region): Bbox {
   return {
@@ -97,7 +95,9 @@ export function TelaMapa() {
   const [regiao, setRegiao] = useState<Region | null>(null);
   const [indiceDetent, setIndiceDetent] = useState(0);
   const [resposta, setResposta] = useState<EstadoResposta>(null);
-  const [desfazerPendente, setDesfazerPendente] = useState(false);
+  // Ids marcados como "Já passou": a versão da ocorrência no momento da marca. A marca local
+  // só vale enquanto a versão não muda (nova confirmação ou reabertura no servidor).
+  const [resolvidos, setResolvidos] = useState<Map<number, number>>(() => new Map());
   const [modoRota, setModoRota] = useState(false);
   // Câmera acompanha o usuário no "Seguir rota" até ele arrastar o mapa
   const [cameraSegue, setCameraSegue] = useState(false);
@@ -106,7 +106,6 @@ export function TelaMapa() {
   const sheetRef = useRef<RefSheet>(null);
   const posicaoSheet = useSharedValue(0);
   const alturaTela = useSharedValue(0);
-  const timerConfirmacao = useRef<ReturnType<typeof setTimeout> | null>(null);
   const indiceAlvo = useRef(1);
   const ultimoFoco = useRef<number | null>(null);
   const jaCentralizou = useRef(false);
@@ -183,43 +182,30 @@ export function TelaMapa() {
 
   // Confirmar/"Já passou" esperam JANELA_DESFAZER_MS antes de ir ao servidor. Desfazer descarta;
   // sair do detalhe (ou da tela) antes disso envia na hora em vez de perder a resposta
-  const acaoPendente = useRef<(() => void) | null>(null);
-  const cancelarTimer = useCallback(() => {
-    if (timerConfirmacao.current) {
-      clearTimeout(timerConfirmacao.current);
-      timerConfirmacao.current = null;
-    }
-    acaoPendente.current = null;
-  }, []);
-  const efetivarPendente = useCallback(() => {
-    const acao = acaoPendente.current;
-    cancelarTimer();
-    acao?.();
-  }, [cancelarTimer]);
-  const agendar = useCallback(
-    (acao: () => void) => {
-      efetivarPendente();
-      acaoPendente.current = acao;
-      timerConfirmacao.current = setTimeout(() => {
-        timerConfirmacao.current = null;
-        acaoPendente.current = null;
-        setDesfazerPendente(false);
-        acao();
-      }, JANELA_DESFAZER_MS);
-    },
-    [efetivarPendente],
-  );
+  const efetivarAcao = useCallback((acao: () => void) => acao(), []);
+  const {
+    pendente: acaoPendente,
+    agendar,
+    desfazer: desfazerAcao,
+    efetivarAgora: efetivarPendente,
+  } = useAcaoComDesfazer<() => void>(JANELA_DESFAZER_MS, efetivarAcao);
+  const desfazerPendente = acaoPendente !== null;
 
   const abrirDetalhe = useCallback(
     (id: number) => {
       efetivarPendente();
+      const ocorrencia =
+        marcadores.find((o) => o.id === id) ?? (detalhe.data?.id === id ? detalhe.data : null);
+      const versaoMarcada = resolvidos.get(id);
+      // A marca local de "Já passou" só vale se o servidor não alterou a ocorrência depois
+      const aindaResolvida =
+        versaoMarcada !== undefined && ocorrencia?.versao === versaoMarcada;
       setSelecionadoId(id);
-      setResposta(RESOLVIDOS.has(id) ? 'resolvido' : null);
-      setDesfazerPendente(false);
+      setResposta(aindaResolvida ? 'resolvido' : null);
       indiceAlvo.current = 1;
       setModoFoco(true);
     },
-    [efetivarPendente, setModoFoco],
+    [efetivarPendente, marcadores, detalhe.data, resolvidos, setModoFoco],
   );
 
   const sairRota = useCallback(() => {
@@ -251,7 +237,6 @@ export function TelaMapa() {
     ultimoFoco.current = null;
     indiceAlvo.current = 1;
     setSelecionadoId(null);
-    setDesfazerPendente(false);
     setModoFoco(false);
   }, [selecionadoId, efetivarPendente, setModoFoco]);
 
@@ -277,7 +262,6 @@ export function TelaMapa() {
     ultimoFoco.current = null;
     indiceAlvo.current = 0;
     setSelecionadoId(null);
-    setDesfazerPendente(false);
     setModoFoco(false);
     mapaRef.current?.animateCamera(
       { center: localizacao.coords, zoom: ZOOM_PADRAO, heading: 0, pitch: 0 },
@@ -314,7 +298,6 @@ export function TelaMapa() {
   const aoConfirmar = useCallback(() => {
     if (selecionadoId === null) return;
     setResposta('confirmado');
-    setDesfazerPendente(true);
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
     agendar(() => confirmarMutate());
   }, [selecionadoId, agendar, confirmarMutate]);
@@ -322,20 +305,35 @@ export function TelaMapa() {
   const aoResolvido = useCallback(() => {
     if (selecionadoId === null) return;
     const id = selecionadoId;
-    RESOLVIDOS.add(id);
+    // Guarda a versão de agora: se o servidor alterar a ocorrência depois, a marca local expira.
+    // Sem versão não há como detectar alteração, então não guarda uma marca que poderia ficar velha.
+    const versao = detalhe.data?.versao ?? selecionada?.versao;
+    if (versao !== undefined) {
+      setResolvidos((anterior) => {
+        const proximo = new Map(anterior);
+        proximo.set(id, versao);
+        return proximo;
+      });
+    }
     setResposta('resolvido');
-    setDesfazerPendente(true);
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
     agendar(() => resolverMutate(id));
-  }, [selecionadoId, agendar, resolverMutate]);
+  }, [selecionadoId, detalhe.data, selecionada, agendar, resolverMutate]);
 
   const aoDesfazer = useCallback(() => {
     if (selecionadoId === null || !desfazerPendente) return;
-    if (resposta === 'resolvido') RESOLVIDOS.delete(selecionadoId);
-    cancelarTimer();
-    setDesfazerPendente(false);
+    const id = selecionadoId;
+    if (resposta === 'resolvido') {
+      setResolvidos((anterior) => {
+        if (!anterior.has(id)) return anterior;
+        const proximo = new Map(anterior);
+        proximo.delete(id);
+        return proximo;
+      });
+    }
+    desfazerAcao();
     setResposta(null);
-  }, [selecionadoId, resposta, desfazerPendente, cancelarTimer]);
+  }, [selecionadoId, resposta, desfazerPendente, desfazerAcao]);
 
   const podeDesfazer = resposta !== null && desfazerPendente;
 
@@ -461,9 +459,6 @@ export function TelaMapa() {
     }, 50);
     return () => clearTimeout(temporizador);
   }, [modoFoco, modoRota, rota.fase]);
-
-  // Saiu da tela com resposta pendente: envia na hora.
-  useEffect(() => efetivarPendente, [efetivarPendente]);
 
   const estiloGps = useAnimatedStyle(() => ({
     bottom: alturaTela.value - posicaoSheet.value + espaco.lg,

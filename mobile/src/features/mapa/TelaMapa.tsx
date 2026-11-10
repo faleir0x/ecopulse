@@ -27,6 +27,7 @@ import {
   type Ocorrencia,
   type TipoRisco,
 } from '@/domain/tipos';
+import { RAIO_INFLUENCIA_M, RAIO_INFLUENCIA_MAX_M } from '@/domain/zonaInfluencia';
 import { simularPercurso, ultimaPosicaoConhecida, useLocalizacao } from '@/features/localizacao';
 import { estiloMapa } from '@/features/mapa/estiloMapa';
 import { useConfirmar, useDetalhe, useOcorrencias, useResolver } from '@/features/ocorrencias';
@@ -46,12 +47,7 @@ import { espaco, sheet as tokensSheet, tamanho } from '@/theme/tokens';
 import { agrupar, type Grupo } from './agrupar';
 import { CamadaAmbiental, useSuperficie } from './CamadaAmbiental';
 import { ClusterMarker } from './ClusterMarker';
-import {
-  CENTRO_SAO_PAULO,
-  RAIO_AREA_SELECIONADA_M,
-  ZOOM_PADRAO,
-  ZOOM_SELECIONADO,
-} from './constantes';
+import { CENTRO_SAO_PAULO, ZOOM_PADRAO, ZOOM_SELECIONADO } from './constantes';
 import { comAlfa } from './cor';
 import type { EstadoResposta } from './DetailFooter';
 import { ICONE_TIPO } from './iconesTipo';
@@ -141,7 +137,10 @@ export function TelaMapa() {
   const celulaOrigem = encode(origem.latitude, origem.longitude, 6);
   const bboxLista = useMemo(() => {
     const c = decodeBbox(celulaOrigem);
-    return bboxDoRaio({ latitude: (c.latMin + c.latMax) / 2, longitude: (c.lonMin + c.lonMax) / 2 }, raioM + 800);
+    return bboxDoRaio(
+      { latitude: (c.latMin + c.latMax) / 2, longitude: (c.lonMin + c.lonMax) / 2 },
+      raioM + RAIO_INFLUENCIA_MAX_M,
+    );
   }, [celulaOrigem, raioM]);
   const proximas = useOcorrencias(bboxLista, filtro);
   // Marcadores = área visível + em volta do usuário (sem duplicar): o que está na lista ou foi
@@ -549,7 +548,7 @@ export function TelaMapa() {
         {selecionada ? (
           <Circle
             center={{ latitude: selecionada.latitude, longitude: selecionada.longitude }}
-            radius={RAIO_AREA_SELECIONADA_M}
+            radius={RAIO_INFLUENCIA_M[selecionada.severidade]}
             fillColor={comAlfa(sev.fill[selecionada.severidade], 0.14)}
             strokeColor="transparent"
             strokeWidth={0}

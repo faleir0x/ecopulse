@@ -1,7 +1,8 @@
 import * as Location from 'expo-location';
 import Storage from 'expo-sqlite/kv-store';
 import * as Linking from 'expo-linking';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { AppState } from 'react-native';
 
 export type Coordenada = { latitude: number; longitude: number };
 export type LocalEscolhido = { latitude: number; longitude: number; nome: string };
@@ -112,21 +113,21 @@ function guardarUltima(coords: Coordenada): void {
   }
 }
 
-const ouvintesPermissao = new Set<() => void>();
-
 /** Pede a permissão; sem chance de perguntar de novo, abre os Ajustes do aparelho. */
 export async function pedirPermissao(): Promise<boolean> {
+  let concedida = false;
   try {
     const { status, canAskAgain } = await Location.requestForegroundPermissionsAsync();
-    if (status !== 'granted' && !canAskAgain) {
+    concedida = status === 'granted';
+    if (!concedida && !canAskAgain) {
       await Linking.openSettings();
     }
-    ouvintesPermissao.forEach((ouvinte) => ouvinte());
-    return status === 'granted';
   } catch {
-    ouvintesPermissao.forEach((ouvinte) => ouvinte());
-    return false;
+    concedida = false;
   }
+  // Quem já usa o hook passa a observar o GPS (ou fica negada) sem reiniciar o app
+  void reavaliar();
+  return concedida;
 }
 
 function trechosDe(pontos: Coordenada[]) {
@@ -200,90 +201,168 @@ function posicaoSimulada(inicioTrajeto: number): Coordenada | null {
   return posicaoAtual;
 }
 
+// Estado do GPS no módulo: um só para o app inteiro, lido por Agora, Mapa, alertas e relato.
+// Os componentes acompanham com useSyncExternalStore; o watcher e o listener de AppState
+// existem só enquanto há pelo menos um componente usando o hook.
+let estadoGps: EstadoLocalizacao = SIMULADA
+  ? { status: 'ok', coords: SIMULADA, precisaoM: 12, simulada: true }
+  : { status: 'carregando' };
+const ouvintesGps = new Set<() => void>();
+
+function mesmoEstadoGps(a: EstadoLocalizacao, b: EstadoLocalizacao): boolean {
+  if (a.status !== b.status) return false;
+  if (a.status !== 'ok' || b.status !== 'ok') return true;
+  return (
+    a.coords.latitude === b.coords.latitude &&
+    a.coords.longitude === b.coords.longitude &&
+    a.precisaoM === b.precisaoM &&
+    a.simulada === b.simulada
+  );
+}
+
+function definirEstadoGps(novo: EstadoLocalizacao): void {
+  if (mesmoEstadoGps(estadoGps, novo)) return;
+  estadoGps = novo;
+  // Guarda a posição real (não o bairro escolhido) para a busca de local usar depois
+  if (novo.status === 'ok') guardarUltima(novo.coords);
+  ouvintesGps.forEach((ouvinte) => ouvinte());
+}
+
+function inscreverGps(ouvinte: () => void): () => void {
+  ouvintesGps.add(ouvinte);
+  return () => {
+    ouvintesGps.delete(ouvinte);
+  };
+}
+
+function lerEstadoGps(): EstadoLocalizacao {
+  return estadoGps;
+}
+
+// Contagem de referências: o primeiro componente liga o GPS, o último desliga
+let referencias = 0;
+let assinatura: Location.LocationSubscription | null = null;
+let cicloGps = 0;
+let avaliando = false;
+let reavaliarPendente = false;
+let ouvinteAppState: { remove(): void } | null = null;
+let atualizarSimulado: (() => void) | null = null;
+let timerSimulado: ReturnType<typeof setInterval> | null = null;
+
+function pararAssinatura(): void {
+  assinatura?.remove();
+  assinatura = null;
+}
+
+async function conferirPermissaoELigar(): Promise<void> {
+  // Cada avaliação invalida a anterior: uma assinatura que chega atrasada é removida
+  const meuCiclo = ++cicloGps;
+  let concedida: boolean;
+  try {
+    const { status } = await Location.getForegroundPermissionsAsync();
+    concedida = status === 'granted';
+  } catch {
+    if (meuCiclo === cicloGps) definirEstadoGps({ status: 'indisponivel' });
+    return;
+  }
+  if (meuCiclo !== cicloGps) return;
+
+  if (!concedida) {
+    pararAssinatura();
+    definirEstadoGps({ status: 'negada' });
+    return;
+  }
+  if (assinatura) return;
+
+  try {
+    const nova = await Location.watchPositionAsync(
+      { accuracy: Location.Accuracy.Balanced, distanceInterval: 25 },
+      (pos) =>
+        definirEstadoGps({
+          status: 'ok',
+          coords: { latitude: pos.coords.latitude, longitude: pos.coords.longitude },
+          precisaoM: pos.coords.accuracy ?? null,
+          simulada: false,
+        }),
+    );
+    if (meuCiclo !== cicloGps) {
+      // O último componente saiu (ou outra avaliação venceu) durante o await
+      nova.remove();
+      return;
+    }
+    assinatura = nova;
+  } catch {
+    if (meuCiclo === cicloGps) definirEstadoGps({ status: 'indisponivel' });
+  }
+}
+
+/** Confere a permissão e liga/desliga o watcher; chamadas concorrentes viram uma só rodada. */
+async function reavaliar(): Promise<void> {
+  if (SIMULADA || referencias === 0) return;
+  if (avaliando) {
+    reavaliarPendente = true;
+    return;
+  }
+  avaliando = true;
+  try {
+    do {
+      reavaliarPendente = false;
+      await conferirPermissaoELigar();
+    } while (reavaliarPendente && referencias > 0 && !SIMULADA);
+  } finally {
+    avaliando = false;
+  }
+}
+
+function ligarSimulacao(): void {
+  if (timerSimulado) return;
+  const inicio = Date.now();
+  const atualizar = () => {
+    const coords = posicaoSimulada(inicio);
+    if (!coords) return;
+    definirEstadoGps({ status: 'ok', coords, precisaoM: 12, simulada: true });
+  };
+  atualizarSimulado = atualizar;
+  ouvintes.add(atualizar);
+  atualizar();
+  timerSimulado = setInterval(atualizar, 1000);
+}
+
+function desligarSimulacao(): void {
+  if (timerSimulado) clearInterval(timerSimulado);
+  timerSimulado = null;
+  if (atualizarSimulado) ouvintes.delete(atualizarSimulado);
+  atualizarSimulado = null;
+}
+
+function entrarNoGps(): () => void {
+  referencias += 1;
+  if (referencias === 1) {
+    ouvinteAppState = AppState.addEventListener('change', (estado) => {
+      // O usuário pode ter permitido nos Ajustes ou religado o GPS enquanto o app estava fora
+      if (estado === 'active') void reavaliar();
+    });
+    if (SIMULADA) ligarSimulacao();
+    else void reavaliar();
+  }
+  return () => {
+    referencias -= 1;
+    if (referencias > 0) return;
+    // Invalida um watchPositionAsync que ainda está no await e remove a assinatura
+    cicloGps += 1;
+    pararAssinatura();
+    ouvinteAppState?.remove();
+    ouvinteAppState = null;
+    desligarSimulacao();
+  };
+}
+
 /** Posição atual em primeiro plano (permissão "enquanto usa o app"), atualizada a cada ~25 m. */
 export function useLocalizacao(): EstadoLocalizacao {
   const escolhidoAtual = useLocalEscolhido();
-  const [estado, setEstado] = useState<EstadoLocalizacao>(
-    SIMULADA ? { status: 'ok', coords: SIMULADA, precisaoM: 12, simulada: true } : { status: 'carregando' },
-  );
-  const [versaoPermissao, setVersaoPermissao] = useState(0);
+  const estado = useSyncExternalStore(inscreverGps, lerEstadoGps);
 
-  // `pedirPermissao` avisa aqui: o efeito do GPS roda de novo e passa a observar a posição
-  // sem precisar reiniciar o app
-  useEffect(() => {
-    const ouvinte = () => setVersaoPermissao((valor) => valor + 1);
-    ouvintesPermissao.add(ouvinte);
-    return () => {
-      ouvintesPermissao.delete(ouvinte);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (SIMULADA) {
-      // Posição simulada, mas a permissão ainda é pedida: o geocodificador do Android
-      // (endereço do detalhe) exige permissão de localização
-      void Location.requestForegroundPermissionsAsync();
-      const inicio = Date.now();
-      const atualizar = () => {
-        const coords = posicaoSimulada(inicio);
-        if (!coords) return;
-        setEstado((atual) =>
-          atual.status === 'ok' &&
-          atual.coords.latitude === coords.latitude &&
-          atual.coords.longitude === coords.longitude
-            ? atual
-            : { status: 'ok', coords, precisaoM: 12, simulada: true },
-        );
-      };
-      atualizar();
-      ouvintes.add(atualizar);
-      const timer = setInterval(atualizar, 1000);
-      return () => {
-        clearInterval(timer);
-        ouvintes.delete(atualizar);
-      };
-    }
-  }, []);
-
-  // Guarda a posição real (não o bairro escolhido) para a busca de local usar depois
-  const ultimaReal = estado.status === 'ok' ? estado.coords : null;
-  useEffect(() => {
-    if (ultimaReal) guardarUltima(ultimaReal);
-  }, [ultimaReal]);
-
-  useEffect(() => {
-    if (SIMULADA) return;
-    let assinatura: Location.LocationSubscription | null = null;
-    let ativo = true;
-
-    (async () => {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (!ativo) return;
-      if (status !== 'granted') {
-        setEstado({ status: 'negada' });
-        return;
-      }
-      try {
-        assinatura = await Location.watchPositionAsync(
-          { accuracy: Location.Accuracy.Balanced, distanceInterval: 25 },
-          (pos) =>
-            setEstado({
-              status: 'ok',
-              coords: { latitude: pos.coords.latitude, longitude: pos.coords.longitude },
-              precisaoM: pos.coords.accuracy ?? null,
-              simulada: false,
-            }),
-        );
-      } catch {
-        if (ativo) setEstado({ status: 'indisponivel' });
-      }
-    })();
-
-    return () => {
-      ativo = false;
-      assinatura?.remove();
-    };
-  }, [versaoPermissao]);
+  useEffect(() => entrarNoGps(), []);
 
   // O local escolhido à mão vale até o usuário voltar para "Minha localização" (mesmo com GPS)
   // Mesmo objeto enquanto o escolhido não muda: quem depende de coords não recalcula à toa

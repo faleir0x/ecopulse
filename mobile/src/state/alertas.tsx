@@ -13,8 +13,15 @@ import { AppState, Platform } from 'react-native';
 
 import { endpoints } from '@/config/endpoints';
 import { ROTULO_SEVERIDADE, ROTULO_TIPO, type Severidade } from '@/domain/tipos';
-import { acrescentar, avaliar, type ItemAlerta } from '@/features/alertas/regras';
-import { avaliarZonas, RAIO_INFLUENCIA_M } from '@/features/alertas/zona';
+import { RAIO_INFLUENCIA_MAX_M } from '@/domain/zonaInfluencia';
+import {
+  acrescentar,
+  avaliar,
+  avisarZona,
+  respostaNova,
+  type ItemAlerta,
+} from '@/features/alertas/regras';
+import { avaliarZonas } from '@/features/alertas/zona';
 import { bboxDoRaio } from '@/features/agora/escalas';
 import { useOcorrencias } from '@/features/ocorrencias';
 import { useLocalizacao } from '@/features/localizacao';
@@ -29,6 +36,8 @@ import { useUi } from './ui';
 
 const CHAVE = 'alertas.v1';
 const CHAVE_ZONAS = 'alertas.zonas.v1';
+const CHAVE_ZONAS_INICIADAS = 'alertas.zonas.iniciadas.v1';
+const CHAVE_ULTIMA_RESPOSTA = 'alertas.ultimaResposta.v1';
 
 function lerZonas(): Set<number> {
   try {
@@ -63,6 +72,22 @@ void (async () => {
     // Sem canal/categoria a notificação cai no canal padrão, sem ações
   }
 })();
+
+function lerUltimaResposta(): string | null {
+  try {
+    return Storage.getItemSync(CHAVE_ULTIMA_RESPOSTA);
+  } catch {
+    return null;
+  }
+}
+
+function salvarUltimaResposta(identificador: string): void {
+  try {
+    Storage.setItemSync(CHAVE_ULTIMA_RESPOSTA, identificador);
+  } catch {
+    // Sem persistência: no pior caso trata a mesma resposta de novo ao reabrir
+  }
+}
 
 function silenciadoAte(): number {
   try {
@@ -198,7 +223,11 @@ export function AlertasProvider({ children }: { children: ReactNode }) {
     });
     const semEstado = cliente.aoMudarEstado((estado) => {
       setConexao(estado);
-      if (estado === 'conectado') sincronizarAgora();
+      if (estado === 'conectado') {
+        sincronizarAgora();
+        // Eventos perdidos durante a queda: rebusca as ocorrências ao reconectar
+        void clienteQuery.invalidateQueries({ queryKey: ['ocorrencias'] });
+      }
     });
     cliente.conectar();
     return () => {
@@ -224,10 +253,11 @@ export function AlertasProvider({ children }: { children: ReactNode }) {
     if (!celulaAtual) return null;
     const c = decodeBbox(celulaAtual);
     const centro = { latitude: (c.latMin + c.latMax) / 2, longitude: (c.lonMin + c.lonMax) / 2 };
-    return bboxDoRaio(centro, RAIO_INFLUENCIA_M.critico + 1000);
+    return bboxDoRaio(centro, RAIO_INFLUENCIA_MAX_M + 1000);
   }, [celulaAtual]);
   const proximas = useOcorrencias(bboxZona, null);
   const dentro = useRef<Set<number>>(lerZonas());
+  const zonasIniciadas = useRef(false);
 
   useEffect(() => {
     if (!posicao || !proximas.data) return;
@@ -241,12 +271,34 @@ export function AlertasProvider({ children }: { children: ReactNode }) {
     } catch {
       // sem persistência: no pior caso avisa de novo ao reabrir o app
     }
+
+    // Primeira avaliação: semeia o conjunto em silêncio para não avisar em rajada
+    if (!zonasIniciadas.current) {
+      let iniciado = false;
+      try {
+        iniciado = Storage.getItemSync(CHAVE_ZONAS_INICIADAS) != null;
+      } catch {
+        // sem persistência: semeia só nesta sessão
+      }
+      zonasIniciadas.current = true;
+      if (!iniciado) {
+        try {
+          Storage.setItemSync(CHAVE_ZONAS_INICIADAS, '1');
+        } catch {
+          // sem persistência: a próxima sessão semeia de novo
+        }
+        return;
+      }
+    }
+
     for (const { ocorrencia, distanciaM } of entrou) {
+      const agora = new Date();
+      if (!avisarZona(ocorrencia.id, contexto.current.alertas, agora)) continue;
       const item: ItemAlerta = {
-        chave: `zona:${ocorrencia.id}:${Date.now()}`,
+        chave: `zona:${ocorrencia.id}:${agora.getTime()}`,
         ocorrencia,
         distanciaM,
-        recebidoEm: new Date().toISOString(),
+        recebidoEm: agora.toISOString(),
         lido: false,
       };
       setAlertas((lista) => {
@@ -285,8 +337,12 @@ export function AlertasProvider({ children }: { children: ReactNode }) {
   );
 
   // Toque na notificação abre o detalhe no Mapa
-  useEffect(() => {
-    const assinatura = Notifications.addNotificationResponseReceivedListener((resposta) => {
+  const tratarResposta = useCallback(
+    (resposta: Notifications.NotificationResponse) => {
+      const identificador = `${resposta.notification.request.identifier}:${resposta.actionIdentifier}`;
+      if (!respostaNova(identificador, lerUltimaResposta())) return;
+      salvarUltimaResposta(identificador);
+
       if (resposta.actionIdentifier === ACAO_SILENCIAR) {
         setSilencioAte(silenciar());
         void Notifications.dismissNotificationAsync(resposta.notification.request.identifier).catch(
@@ -302,9 +358,20 @@ export function AlertasProvider({ children }: { children: ReactNode }) {
         setOcorrenciaFoco(id);
         router.navigate('/mapa');
       }
-    });
+    },
+    [abrir, setOcorrenciaFoco],
+  );
+
+  useEffect(() => {
+    const assinatura = Notifications.addNotificationResponseReceivedListener(tratarResposta);
+    // Resposta que abriu o app com ele fechado não passa pelo listener: busca uma vez ao montar
+    void Notifications.getLastNotificationResponseAsync()
+      .then((resposta) => {
+        if (resposta) tratarResposta(resposta);
+      })
+      .catch(() => undefined);
     return () => assinatura.remove();
-  }, [abrir, setOcorrenciaFoco]);
+  }, [tratarResposta]);
 
   const naoLidos = alertas.filter((a) => !a.lido).length;
   const valor = useMemo(

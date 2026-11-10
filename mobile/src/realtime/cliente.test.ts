@@ -3,13 +3,16 @@ import type { Ocorrencia } from '@/domain/tipos';
 import {
   ClienteRealtime,
   PING_MS,
+  PONG_TIMEOUT_MS,
   RECONEXAO_MIN_MS,
   type Alerta,
   type EstadoConexao,
+  type Opcoes,
 } from './cliente';
 
 class SocketFalso {
   enviadas: string[] = [];
+  fechamentos: { codigo?: number; motivo?: string }[] = [];
   url: string;
   onopen: ((evento: unknown) => void) | null = null;
   onmessage: ((evento: { data: unknown }) => void) | null = null;
@@ -24,7 +27,8 @@ class SocketFalso {
     this.enviadas.push(dados);
   }
 
-  close(): void {
+  close(codigo?: number, motivo?: string): void {
+    this.fechamentos.push({ codigo, motivo });
     this.onclose?.({});
   }
 
@@ -47,8 +51,10 @@ class SocketFalso {
   }
 }
 
-function montar(url = 'ws://api.test:8002') {
+function montar(url = 'ws://api.test:8002', opcoes: Partial<Opcoes> = {}) {
   const sockets: SocketFalso[] = [];
+  const primeiroPlanoOuvintes = new Set<() => void>();
+  let assinaturas = 0;
   const cliente = new ClienteRealtime({
     url,
     criarSocket: (destino) => {
@@ -57,8 +63,26 @@ function montar(url = 'ws://api.test:8002') {
       return socket as unknown as WebSocket;
     },
     aleatorio: () => 0.5,
+    assinarPrimeiroPlano: (cb) => {
+      assinaturas += 1;
+      primeiroPlanoOuvintes.add(cb);
+      return () => {
+        primeiroPlanoOuvintes.delete(cb);
+      };
+    },
+    ...opcoes,
   });
-  return { cliente, sockets };
+  return {
+    cliente,
+    sockets,
+    dispararPrimeiroPlano: () => {
+      for (const cb of [...primeiroPlanoOuvintes]) {
+        cb();
+      }
+    },
+    assinaturas: () => assinaturas,
+    ouvintesPrimeiroPlano: () => primeiroPlanoOuvintes.size,
+  };
 }
 
 const ocorrencia: Ocorrencia = {
@@ -178,9 +202,125 @@ describe('ClienteRealtime', () => {
     expect(sockets[0]?.envelopes().filter((item) => item.op === 'ping')).toHaveLength(0);
     jest.advanceTimersByTime(1);
     expect(sockets[0]?.envelopes().filter((item) => item.op === 'ping')).toHaveLength(1);
+    sockets[0]?.receber({ type: 'pong' });
     jest.advanceTimersByTime(PING_MS);
     expect(sockets[0]?.envelopes().filter((item) => item.op === 'ping')).toHaveLength(2);
 
     cliente.fechar();
+  });
+
+  it('fecha com 4000/"sem resposta" e reconecta quando o pong não chega em 10 s', () => {
+    jest.useFakeTimers();
+    const { cliente, sockets } = montar();
+    const estados: EstadoConexao[] = [];
+    cliente.aoMudarEstado((estado) => estados.push(estado));
+    cliente.conectar();
+    sockets[0]?.abrir();
+
+    jest.advanceTimersByTime(PING_MS);
+    expect(sockets[0]?.envelopes().at(-1)).toEqual({ op: 'ping' });
+
+    jest.advanceTimersByTime(PONG_TIMEOUT_MS - 1);
+    expect(sockets[0]?.fechamentos).toHaveLength(0);
+
+    jest.advanceTimersByTime(1);
+    expect(sockets[0]?.fechamentos).toEqual([{ codigo: 4000, motivo: 'sem resposta' }]);
+    expect(estados).toEqual(['conectando', 'conectado', 'desconectado']);
+
+    jest.advanceTimersByTime(RECONEXAO_MIN_MS);
+    expect(sockets).toHaveLength(2);
+
+    // O prazo do socket antigo não afeta o novo.
+    sockets[1]?.abrir();
+    jest.advanceTimersByTime(PONG_TIMEOUT_MS);
+    expect(sockets[1]?.fechamentos).toHaveLength(0);
+
+    cliente.fechar();
+  });
+
+  it('pong antes do prazo desarma o timeout', () => {
+    jest.useFakeTimers();
+    const { cliente, sockets } = montar();
+    cliente.conectar();
+    sockets[0]?.abrir();
+
+    jest.advanceTimersByTime(PING_MS);
+    sockets[0]?.receber({ type: 'pong' });
+    jest.advanceTimersByTime(PONG_TIMEOUT_MS);
+
+    expect(sockets[0]?.fechamentos).toHaveLength(0);
+    expect(sockets).toHaveLength(1);
+
+    cliente.fechar();
+  });
+
+  it('mensagem de alerta também desarma o prazo do pong', () => {
+    jest.useFakeTimers();
+    const { cliente, sockets } = montar();
+    cliente.conectar();
+    sockets[0]?.abrir();
+
+    jest.advanceTimersByTime(PING_MS);
+    sockets[0]?.receber({ type: 'ocorrencia.criada', ocorrencia });
+    jest.advanceTimersByTime(PONG_TIMEOUT_MS);
+
+    expect(sockets[0]?.fechamentos).toHaveLength(0);
+    expect(sockets).toHaveLength(1);
+
+    cliente.fechar();
+  });
+
+  it('primeiro plano conectado envia ping na hora e arma o prazo', () => {
+    jest.useFakeTimers();
+    const { cliente, sockets, dispararPrimeiroPlano, assinaturas } = montar();
+    cliente.conectar();
+    sockets[0]?.abrir();
+    expect(assinaturas()).toBe(1);
+
+    dispararPrimeiroPlano();
+    expect(sockets[0]?.envelopes().filter((item) => item.op === 'ping')).toHaveLength(1);
+
+    jest.advanceTimersByTime(PONG_TIMEOUT_MS);
+    expect(sockets[0]?.fechamentos).toEqual([{ codigo: 4000, motivo: 'sem resposta' }]);
+
+    cliente.fechar();
+  });
+
+  it('primeiro plano durante a espera de reconexão reconecta já e zera o backoff', () => {
+    jest.useFakeTimers();
+    const { cliente, sockets, dispararPrimeiroPlano, assinaturas } = montar();
+    cliente.conectar();
+    sockets[0]?.abrir();
+    sockets[0]?.cair();
+
+    expect(sockets).toHaveLength(1);
+    dispararPrimeiroPlano();
+    expect(sockets).toHaveLength(2);
+    expect(assinaturas()).toBe(1);
+
+    sockets[1]?.cair();
+    jest.advanceTimersByTime(RECONEXAO_MIN_MS - 1);
+    expect(sockets).toHaveLength(2);
+    jest.advanceTimersByTime(1);
+    expect(sockets).toHaveLength(3);
+
+    cliente.fechar();
+  });
+
+  it('fechar cancela a assinatura de primeiro plano', () => {
+    jest.useFakeTimers();
+    const { cliente, sockets, dispararPrimeiroPlano, assinaturas, ouvintesPrimeiroPlano } =
+      montar();
+    cliente.conectar();
+    sockets[0]?.abrir();
+    expect(assinaturas()).toBe(1);
+    expect(ouvintesPrimeiroPlano()).toBe(1);
+
+    cliente.fechar();
+    expect(ouvintesPrimeiroPlano()).toBe(0);
+
+    dispararPrimeiroPlano();
+    jest.advanceTimersByTime(60_000);
+    expect(sockets).toHaveLength(1);
   });
 });

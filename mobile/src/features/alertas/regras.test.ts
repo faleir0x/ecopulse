@@ -1,6 +1,15 @@
 import type { Ocorrencia } from '@/domain/tipos';
 
-import { acrescentar, avaliar, MAX_ALERTAS, type Contexto } from './regras';
+import {
+  acrescentar,
+  avaliar,
+  avisarZona,
+  JANELA_REPETICAO_ZONA_MS,
+  MAX_ALERTAS,
+  respostaNova,
+  type Contexto,
+  type ItemAlerta,
+} from './regras';
 
 const PAULISTA = { latitude: -23.5613, longitude: -46.6565 };
 const AGORA = new Date('2026-11-08T12:00:00Z');
@@ -104,5 +113,50 @@ describe('acrescentar', () => {
       lista = acrescentar(lista, { ...base, chave: `${i}:alto` });
     expect(lista).toHaveLength(MAX_ALERTAS);
     expect(lista[0]?.chave).toBe(`${MAX_ALERTAS + 9}:alto`);
+  });
+});
+
+function alerta(id: number, recebidoEm: string): ItemAlerta {
+  return {
+    chave: `${id}:alto:${recebidoEm}`,
+    ocorrencia: ocorrencia({ id }),
+    distanciaM: 50,
+    recebidoEm,
+    lido: false,
+  };
+}
+
+describe('avisarZona', () => {
+  const dentroDaJanela = new Date(AGORA.getTime() - JANELA_REPETICAO_ZONA_MS + 1).toISOString();
+
+  it('não avisa de novo dentro da janela', () => {
+    expect(avisarZona(1, [alerta(1, dentroDaJanela)], AGORA)).toBe(false);
+  });
+
+  it('avisa de novo fora da janela', () => {
+    const foraDaJanela = new Date(AGORA.getTime() - JANELA_REPETICAO_ZONA_MS).toISOString();
+    expect(avisarZona(1, [alerta(1, foraDaJanela)], AGORA)).toBe(true);
+  });
+
+  it('outra ocorrência não bloqueia o aviso', () => {
+    expect(avisarZona(2, [alerta(1, dentroDaJanela)], AGORA)).toBe(true);
+  });
+
+  it('sem alertas avisa', () => {
+    expect(avisarZona(1, [], AGORA)).toBe(true);
+  });
+});
+
+describe('respostaNova', () => {
+  it('ignora a mesma resposta já tratada', () => {
+    expect(respostaNova('notificacao:acao', 'notificacao:acao')).toBe(false);
+  });
+
+  it('trata uma resposta diferente', () => {
+    expect(respostaNova('notificacao:acao', 'outra:acao')).toBe(true);
+  });
+
+  it('trata quando ainda não há última resposta', () => {
+    expect(respostaNova('notificacao:acao', null)).toBe(true);
   });
 });

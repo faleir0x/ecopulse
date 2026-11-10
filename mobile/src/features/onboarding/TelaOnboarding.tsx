@@ -1,4 +1,3 @@
-import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 import { router } from 'expo-router';
 import { useState } from 'react';
@@ -7,6 +6,7 @@ import Animated, { FadeIn, SlideInRight } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, T } from '@/components';
+import { pedirPermissao } from '@/features/localizacao';
 import { Icon } from '@/icons/Icon';
 import type { NomeIcone } from '@/icons';
 import { useAjustes } from '@/state/ajustes';
@@ -58,7 +58,7 @@ export function TelaOnboarding() {
     if (ocupado) return;
     setOcupado(true);
     try {
-      await Location.requestForegroundPermissionsAsync();
+      await pedirPermissao();
     } catch {
       // A resposta negada ou o erro também seguem para a próxima tela
     } finally {

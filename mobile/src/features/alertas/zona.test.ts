@@ -1,6 +1,7 @@
 import type { Ocorrencia } from '@/domain/tipos';
+import { RAIO_INFLUENCIA_M } from '@/domain/zonaInfluencia';
 
-import { avaliarZonas, RAIO_INFLUENCIA_M } from './zona';
+import { avaliarZonas } from './zona';
 
 const BASE = { latitude: -23.5613, longitude: -46.6565 };
 const filtro = {

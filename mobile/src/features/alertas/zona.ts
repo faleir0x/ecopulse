@@ -4,15 +4,10 @@
  * Funções puras (testadas); o estado "dentro/fora" é guardado por quem chama.
  */
 import { nivel, type Ocorrencia, type Severidade, type TipoRisco } from '@/domain/tipos';
+import { RAIO_INFLUENCIA_M } from '@/domain/zonaInfluencia';
 import { distanciaM } from '@/lib/distancia';
 
-/** Raio de influência por gravidade: quanto pior, mais longe vale avisar. */
-export const RAIO_INFLUENCIA_M: Record<Severidade, number> = {
-  baixo: 150,
-  moderado: 300,
-  alto: 500,
-  critico: 800,
-};
+export { RAIO_INFLUENCIA_M };
 
 /** Histerese: só conta como "saiu" além de 120% do raio (evita avisos piscando na borda). */
 export const FOLGA_SAIDA = 1.2;

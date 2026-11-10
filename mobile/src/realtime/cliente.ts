@@ -2,6 +2,8 @@
  * Cliente do WebSocket /v1/ws (services/realtime/src/ecopulse_realtime/protocolo.py).
  * Reconecta sozinho com backoff e reassina as células ao reconectar.
  */
+import { AppState } from 'react-native';
+
 import type { Ocorrencia } from '@/domain/tipos';
 
 export type TipoAlerta = 'ocorrencia.criada' | 'ocorrencia.atualizada' | 'ocorrencia.expirada';
@@ -9,6 +11,7 @@ export type Alerta = { type: TipoAlerta; ocorrencia: Ocorrencia };
 export type EstadoConexao = 'conectando' | 'conectado' | 'desconectado';
 
 export const PING_MS = 25_000;
+export const PONG_TIMEOUT_MS = 10_000;
 export const RECONEXAO_MIN_MS = 1_000;
 export const RECONEXAO_MAX_MS = 30_000;
 
@@ -16,6 +19,7 @@ export type Opcoes = {
   url: string; // ws://host:porta (o cliente acrescenta /v1/ws)
   criarSocket?: (url: string) => WebSocket;
   aleatorio?: () => number;
+  assinarPrimeiroPlano?: (cb: () => void) => () => void;
 };
 
 const TIPOS_ALERTA: TipoAlerta[] = [
@@ -32,13 +36,16 @@ export class ClienteRealtime {
   private readonly url: string;
   private readonly criarSocket: (url: string) => WebSocket;
   private readonly aleatorio: () => number;
+  private readonly observarPrimeiroPlano: (cb: () => void) => () => void;
 
   private socket: WebSocket | null = null;
   private celulas: string[] = [];
   private estado: EstadoConexao = 'desconectado';
   private tentativas = 0;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
+  private pongTimer: ReturnType<typeof setTimeout> | null = null;
   private reconexaoTimer: ReturnType<typeof setTimeout> | null = null;
+  private cancelarPrimeiroPlano: (() => void) | null = null;
   private fechado = false;
   private alertaOuvintes = new Set<(alerta: Alerta) => void>();
   private estadoOuvintes = new Set<(estado: EstadoConexao) => void>();
@@ -48,6 +55,18 @@ export class ClienteRealtime {
     this.url = base.endsWith('/v1/ws') ? base : `${base}/v1/ws`;
     this.criarSocket = opcoes.criarSocket ?? ((url) => new WebSocket(url));
     this.aleatorio = opcoes.aleatorio ?? Math.random;
+    this.observarPrimeiroPlano =
+      opcoes.assinarPrimeiroPlano ??
+      ((cb) => {
+        const assinatura = AppState.addEventListener('change', (estado) => {
+          if (estado === 'active') {
+            cb();
+          }
+        });
+        return () => {
+          assinatura.remove();
+        };
+      });
   }
 
   private mudarEstado(novo: EstadoConexao): void {
@@ -82,6 +101,44 @@ export class ClienteRealtime {
     }
   }
 
+  private pararPong(): void {
+    if (this.pongTimer) {
+      clearTimeout(this.pongTimer);
+      this.pongTimer = null;
+    }
+  }
+
+  /**
+   * Envia um ping e arma o prazo de PONG_TIMEOUT_MS: qualquer mensagem do servidor o desarma;
+   * se vencer, o socket atual é fechado com 4000/"sem resposta" e cai no caminho normal.
+   */
+  private enviarPing(): void {
+    const socket = this.socket;
+    if (!socket || this.estado !== 'conectado') {
+      return;
+    }
+    this.enviar({ op: 'ping' });
+    this.armarPong(socket);
+  }
+
+  private armarPong(socket: WebSocket): void {
+    this.pararPong();
+    this.pongTimer = setTimeout(() => {
+      this.pongTimer = null;
+      if (this.socket !== socket) {
+        return;
+      }
+      try {
+        socket.close(4000, 'sem resposta');
+      } catch {
+        // Socket já encerrado.
+      }
+      if (this.socket === socket) {
+        this.aoCair();
+      }
+    }, PONG_TIMEOUT_MS);
+  }
+
   private iniciarPing(): void {
     this.pararPing();
     const socket = this.socket;
@@ -89,8 +146,35 @@ export class ClienteRealtime {
       if (this.socket !== socket || this.estado !== 'conectado') {
         return;
       }
-      this.enviar({ op: 'ping' });
+      this.enviarPing();
     }, PING_MS);
+  }
+
+  private assinarPrimeiroPlano(): void {
+    if (this.cancelarPrimeiroPlano) {
+      return;
+    }
+    this.cancelarPrimeiroPlano = this.observarPrimeiroPlano(() => {
+      this.aoVoltarAoPrimeiroPlano();
+    });
+  }
+
+  private aoVoltarAoPrimeiroPlano(): void {
+    if (this.fechado) {
+      return;
+    }
+
+    if (this.estado === 'conectado') {
+      this.enviarPing();
+      return;
+    }
+
+    if (this.estado === 'desconectado' && this.reconexaoTimer) {
+      clearTimeout(this.reconexaoTimer);
+      this.reconexaoTimer = null;
+      this.tentativas = 0;
+      this.conectar();
+    }
   }
 
   private aoCair(): void {
@@ -100,6 +184,7 @@ export class ClienteRealtime {
 
     this.socket = null;
     this.pararPing();
+    this.pararPong();
     this.mudarEstado('desconectado');
 
     if (this.reconexaoTimer) {
@@ -161,6 +246,7 @@ export class ClienteRealtime {
    */
   conectar(): void {
     this.fechado = false;
+    this.assinarPrimeiroPlano();
     if (this.socket) {
       return;
     }
@@ -198,6 +284,7 @@ export class ClienteRealtime {
       if (this.socket !== socket) {
         return;
       }
+      this.pararPong();
       this.receber(evento);
     };
 
@@ -239,7 +326,7 @@ export class ClienteRealtime {
     };
   }
 
-  /** Fecha de vez (sem reconectar) e limpa timers. */
+  /** Fecha de vez (sem reconectar) e limpa timers e a assinatura de primeiro plano. */
   fechar(): void {
     this.fechado = true;
 
@@ -248,6 +335,12 @@ export class ClienteRealtime {
       this.reconexaoTimer = null;
     }
     this.pararPing();
+    this.pararPong();
+
+    if (this.cancelarPrimeiroPlano) {
+      this.cancelarPrimeiroPlano();
+      this.cancelarPrimeiroPlano = null;
+    }
 
     const socket = this.socket;
     this.socket = null;

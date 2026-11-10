@@ -27,9 +27,9 @@ jest.mock('expo-router', () => ({
   router: { push: jest.fn(), replace: (...args: unknown[]) => mockReplace(...args) },
 }));
 
-const mockLocalizacao = jest.fn(async (): Promise<{ status: string }> => ({ status: 'granted' }));
-jest.mock('expo-location', () => ({
-  requestForegroundPermissionsAsync: () => mockLocalizacao(),
+const mockPedirPermissao = jest.fn(async (): Promise<boolean> => true);
+jest.mock('@/features/localizacao', () => ({
+  pedirPermissao: () => mockPedirPermissao(),
 }));
 
 const mockNotificacoes = jest.fn(async (): Promise<{ granted: boolean }> => ({ granted: true }));
@@ -64,7 +64,7 @@ describe('TelaOnboarding', () => {
   beforeEach(() => {
     mockAtualizar.mockClear();
     mockReplace.mockClear();
-    mockLocalizacao.mockClear();
+    mockPedirPermissao.mockClear();
     mockNotificacoes.mockClear();
   });
 
@@ -76,6 +76,7 @@ describe('TelaOnboarding', () => {
 
     await fireEvent.press(getByLabelText('Permitir localização'));
 
+    await waitFor(() => expect(mockPedirPermissao).toHaveBeenCalledTimes(1));
     expect(await findByText('Avisos na hora')).toBeTruthy();
     expect(getByText('Permitir notificações')).toBeTruthy();
     expect(mockAtualizar).not.toHaveBeenCalled();
@@ -94,7 +95,7 @@ describe('TelaOnboarding', () => {
     await fireEvent.press(getByLabelText('Agora não'));
 
     expect(await findByText('Avisos na hora')).toBeTruthy();
-    expect(mockLocalizacao).not.toHaveBeenCalled();
+    expect(mockPedirPermissao).not.toHaveBeenCalled();
   });
 
   it('"Agora não" na segunda tela conclui o onboarding', async () => {

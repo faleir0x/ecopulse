@@ -50,3 +50,20 @@ export const MAX_ALERTAS = 100;
 export function acrescentar(lista: ItemAlerta[], item: ItemAlerta): ItemAlerta[] {
   return [item, ...lista.filter((a) => a.chave !== item.chave)].slice(0, MAX_ALERTAS);
 }
+
+/** Janela em que a mesma ocorrência não avisa de novo ao entrar na zona. */
+export const JANELA_REPETICAO_ZONA_MS = 30 * 60_000;
+
+/** false se a ocorrência já teve um alerta dentro da janela; true se pode avisar. */
+export function avisarZona(ocorrenciaId: number, alertas: ItemAlerta[], agora: Date): boolean {
+  return !alertas.some(
+    (a) =>
+      a.ocorrencia.id === ocorrenciaId &&
+      agora.getTime() - new Date(a.recebidoEm).getTime() < JANELA_REPETICAO_ZONA_MS,
+  );
+}
+
+/** true quando a resposta da notificação é diferente da última já tratada. */
+export function respostaNova(identificador: string, ultimaTratada: string | null): boolean {
+  return identificador !== ultimaTratada;
+}

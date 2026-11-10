@@ -5,9 +5,6 @@ import type { Coordenada } from '@/features/localizacao';
 /** Raio padrão do alerta em metros (a tela Ajustes muda isso na etapa 4.5). */
 export const RAIO_PADRAO_M = 1000;
 
-/** Raio do círculo tingido em volta da ocorrência selecionada. */
-export const RAIO_AREA_SELECIONADA_M = 300;
-
 /** Centro de São Paulo (fallback quando não há localização). */
 export const CENTRO_SAO_PAULO: Coordenada = {
   latitude: -23.5613,

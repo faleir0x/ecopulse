@@ -75,7 +75,8 @@ describe('useRotaSegura', () => {
     await act(() => result.current.calcular());
 
     await waitFor(() => expect(calcularRotaMock).toHaveBeenCalledTimes(1));
-    expect(result.current.calculando).toBe(true);
+    // O estado "calculando" chega num render depois da chamada: espera em vez de ler na hora
+    await waitFor(() => expect(result.current.calculando).toBe(true));
 
     await act(() => result.current.setDestino(DESTINO_B));
     expect(result.current.fase).toBe('destino');

@@ -6,7 +6,7 @@
  * quando algo muda (token, ajustes, silêncio, andou DISTANCIA_RENOVAR_M) ou a cada
  * RENOVAR_APOS_MS (o servidor esquece registros sem renovação em 7 dias).
  */
-import Constants, { ExecutionEnvironment } from 'expo-constants';
+import { isRunningInExpoGo } from 'expo';
 import * as Notifications from 'expo-notifications';
 import Storage from 'expo-sqlite/kv-store';
 import { useCallback, useEffect, useRef } from 'react';
@@ -40,7 +40,9 @@ export type RegistroPush = DadosRegistro & { enviadoEm: number };
 export function pushDisponivel(): boolean {
   return (
     Platform.OS === 'android' &&
-    Constants.executionEnvironment !== ExecutionEnvironment.StoreClient
+    // Mesma detecção do expo-notifications: no Expo Go (SDK 53+) as APIs de push lançam erro.
+    // Constants.executionEnvironment não identifica o Expo Go neste SDK.
+    !isRunningInExpoGo()
   );
 }
 

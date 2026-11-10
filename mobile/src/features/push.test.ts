@@ -21,14 +21,8 @@ import {
 const mockArmazenado = new Map<string, string>();
 let mockAmbiente = 'standalone';
 
-jest.mock('expo-constants', () => ({
-  __esModule: true,
-  default: {
-    get executionEnvironment() {
-      return mockAmbiente;
-    },
-  },
-  ExecutionEnvironment: { Bare: 'bare', Standalone: 'standalone', StoreClient: 'storeClient' },
+jest.mock('expo', () => ({
+  isRunningInExpoGo: () => mockAmbiente === 'storeClient',
 }));
 
 const mockPermissao = jest.fn();

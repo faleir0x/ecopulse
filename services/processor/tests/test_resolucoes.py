@@ -39,7 +39,7 @@ def _relato_envelope() -> Envelope:
         descricao=None,
         latitude=LAT,
         longitude=LON,
-        registrado_em=datetime(2026, 11, 7, 12, 0, tzinfo=UTC),
+        registrado_em=datetime.now(UTC),
     )
     return Envelope(
         type=EventType.RELATO_RECEBIDO,

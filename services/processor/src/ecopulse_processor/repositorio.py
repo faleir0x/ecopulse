@@ -6,6 +6,7 @@ Para ler lat/lon: ST_Y/ST_X(geom::geometry).
 """
 
 from datetime import timedelta
+from uuid import UUID
 
 import asyncpg
 
@@ -172,6 +173,55 @@ async def confirmar_ocorrencia(
     if linha is None:
         raise RuntimeError("UPDATE de ocorrência não retornou linha")
     return _ocorrencia_da_linha(linha)
+
+
+async def aparelho_ja_contribuiu(
+    conn: asyncpg.Connection, ocorrencia_id: int, device_id: UUID, relato_id: int
+) -> bool:
+    """True se o aparelho já tem OUTRO relato (id <> relato_id) vinculado à ocorrência."""
+    resultado = await conn.fetchval(
+        """
+        SELECT EXISTS (
+            SELECT 1
+            FROM relatos
+            WHERE ocorrencia_id = $1
+              AND device_id = $2
+              AND id <> $3
+        )
+        """,
+        ocorrencia_id,
+        device_id,
+        relato_id,
+    )
+    return bool(resultado)
+
+
+async def elevar_severidade(
+    conn: asyncpg.Connection, ocorrencia_id: int, severidade: Severidade
+) -> OcorrenciaPayload | None:
+    """Sobe a severidade para `severidade` se ela for maior que a atual
+    (regras.ORDEM_SEVERIDADE), com atualizada_em = now(); NÃO mexe em confirmacoes nem em
+    expira_em. Retorna o estado novo, ou None se a severidade não mudou."""
+    linha = await conn.fetchrow(
+        """
+        UPDATE ocorrencias
+        SET severidade = $2::text,
+            atualizada_em = now()
+        WHERE id = $1
+          AND array_position($3::text[], severidade)
+              < array_position($3::text[], $2::text)
+        RETURNING
+            id, tipo, severidade,
+            ST_Y(geom::geometry) AS latitude,
+            ST_X(geom::geometry) AS longitude,
+            geohash, confirmacoes, status, criada_em, atualizada_em, expira_em,
+            resolucoes, encerrada_em
+        """,
+        ocorrencia_id,
+        severidade.value,
+        [item.value for item in regras.ORDEM_SEVERIDADE],
+    )
+    return _ocorrencia_da_linha(linha) if linha is not None else None
 
 
 async def vincular_relato(conn: asyncpg.Connection, relato_id: int, ocorrencia_id: int) -> None:

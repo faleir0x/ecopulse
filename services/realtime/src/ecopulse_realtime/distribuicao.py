@@ -17,6 +17,9 @@ from ecopulse_realtime.assinaturas import Assinaturas, Mudanca
 
 log = logging.getLogger(__name__)
 
+# Pausa quando nenhum nó tem mensagem (latência máxima extra de um alerta)
+ESPERA_OCIOSA_S = 0.02
+
 TAMANHO_FILA_CLIENTE = 100
 
 
@@ -70,9 +73,14 @@ class Distribuidor:
                 cliente.lento.set()
 
     async def rodar(self, parar: asyncio.Event) -> None:
-        """Laço até `parar`: get_sharded_message(ignore_subscribe_messages=True, timeout=1.0);
+        """Laço até `parar`: get_sharded_message(ignore_subscribe_messages=True, timeout=0);
         mensagem → entregar(celula_do_canal(canal), dados). Sem nenhuma assinatura, só espera
-        (não chame get_sharded_message sem canais). RedisError → loga, espera 1 s, continua."""
+        (não chame get_sharded_message sem canais). RedisError → loga, espera 1 s, continua.
+
+        timeout=0 é obrigatório: o redis-py percorre os nós do cluster um por vez e, com
+        timeout > 0, espera esse tempo inteiro em CADA nó sem mensagem antes de ler o próximo
+        (com 3 mestres, um alerta podia atrasar 2 s). Sem mensagem em nenhum nó, dorme
+        ESPERA_OCIOSA_S."""
         while not parar.is_set():
             if not self.pubsub.subscribed:
                 with contextlib.suppress(TimeoutError):
@@ -81,7 +89,7 @@ class Distribuidor:
 
             try:
                 mensagem = await self.pubsub.get_sharded_message(
-                    ignore_subscribe_messages=True, timeout=1.0
+                    ignore_subscribe_messages=True, timeout=0.0
                 )
             except RedisError as exc:
                 log.warning(
@@ -92,6 +100,8 @@ class Distribuidor:
                 continue
 
             if mensagem is None:
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(parar.wait(), timeout=ESPERA_OCIOSA_S)
                 continue
 
             canal = mensagem.get("channel")

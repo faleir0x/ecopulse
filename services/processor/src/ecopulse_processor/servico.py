@@ -1,6 +1,7 @@
 """Casos de uso do processor: cada um abre UMA transação."""
 
 import logging
+from datetime import UTC, datetime
 
 import asyncpg
 from pydantic import ValidationError
@@ -24,12 +25,17 @@ async def processar_relato(pool: asyncpg.Pool, envelope: Envelope) -> None:
 
     1. Valida envelope.payload como RelatoRecebido; ValidationError → PermanentError.
     2. Numa transação:
-       a. travar_regiao(f"{tipo}:{envelope.geohash[:5]}")
+       a. para cada célula de regras.celulas_de_trava (já ordenadas), travar_regiao com
+          f"{tipo}:{celula}" — relatos perto de uma borda geohash5 disputam as mesmas travas
        b. inserir_relato; se duplicata → retorna sem fazer mais nada
-       c. ocorrencia_proxima(RAIO_AGRUPAMENTO_M); se existe → confirmar_ocorrencia (evento
-          OCORRENCIA_ATUALIZADA), senão criar_ocorrencia (evento OCORRENCIA_CRIADA)
-       d. vincular_relato
-       e. enfileirar_evento com Envelope(type=..., geohash=ocorrencia.geohash,
+       c. se regras.relato_antigo (veio da fila offline e o risco já teria expirado) → loga
+          "relato antigo guardado sem agrupar" e retorna: sem ocorrência e sem evento
+       d. ocorrencia_proxima(RAIO_AGRUPAMENTO_M); se existe e o aparelho já contribuiu,
+          só eleva a severidade (evento OCORRENCIA_ATUALIZADA apenas se ela mudou) e vincula
+       e. senão, se existe → confirmar_ocorrencia (evento OCORRENCIA_ATUALIZADA), senão
+          criar_ocorrencia (evento OCORRENCIA_CRIADA)
+       f. vincular_relato
+       g. enfileirar_evento com Envelope(type=..., geohash=ocorrencia.geohash,
           payload=ocorrencia.model_dump(mode="json"))
     3. asyncpg.exceptions.IntegrityConstraintViolationError e DataError → PermanentError.
        Outras exceções sobem (o consumidor faz retry).
@@ -45,7 +51,10 @@ async def processar_relato(pool: asyncpg.Pool, envelope: Envelope) -> None:
 
     try:
         async with pool.acquire() as conn, conn.transaction():
-            await repositorio.travar_regiao(conn, f"{relato.tipo.value}:{envelope.geohash[:5]}")
+            for celula_trava in regras.celulas_de_trava(
+                relato.latitude, relato.longitude, regras.RAIO_AGRUPAMENTO_M
+            ):
+                await repositorio.travar_regiao(conn, f"{relato.tipo.value}:{celula_trava}")
 
             relato_id = await repositorio.inserir_relato(conn, relato, celula)
             if relato_id is None:
@@ -58,9 +67,39 @@ async def processar_relato(pool: asyncpg.Pool, envelope: Envelope) -> None:
                 )
                 return
 
+            if regras.relato_antigo(relato.registrado_em, datetime.now(UTC), validade):
+                log.info(
+                    "relato antigo guardado sem agrupar",
+                    extra={
+                        "event_id": str(envelope.event_id),
+                        "client_id": str(relato.client_id),
+                        "registrado_em": relato.registrado_em.isoformat(),
+                    },
+                )
+                return
+
             ocorrencia_id = await repositorio.ocorrencia_proxima(
                 conn, relato, regras.RAIO_AGRUPAMENTO_M
             )
+            if ocorrencia_id is not None and await repositorio.aparelho_ja_contribuiu(
+                conn, ocorrencia_id, relato.device_id, relato_id
+            ):
+                ocorrencia = await repositorio.elevar_severidade(
+                    conn, ocorrencia_id, relato.severidade
+                )
+                await repositorio.vincular_relato(conn, relato_id, ocorrencia_id)
+                if ocorrencia is None:
+                    return
+                await repositorio.enfileirar_evento(
+                    conn,
+                    Envelope(
+                        type=EventType.OCORRENCIA_ATUALIZADA,
+                        geohash=ocorrencia.geohash,
+                        payload=ocorrencia.model_dump(mode="json"),
+                    ),
+                )
+                return
+
             if ocorrencia_id is None:
                 ocorrencia = await repositorio.criar_ocorrencia(conn, relato, celula, validade)
                 tipo_evento = EventType.OCORRENCIA_CRIADA

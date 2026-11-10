@@ -1,6 +1,7 @@
 import asyncio
 import json
-from datetime import UTC, datetime
+import math
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -37,16 +38,18 @@ def _envelope(
     tipo: TipoRisco = TipoRisco.ALAGAMENTO,
     severidade: Severidade = Severidade.ALTO,
     client_id: UUID | None = None,
+    device_id: UUID | None = None,
+    registrado_em: datetime | None = None,
 ) -> Envelope:
     payload = RelatoRecebido(
         client_id=client_id or uuid4(),
-        device_id=uuid4(),
+        device_id=device_id or uuid4(),
         tipo=tipo,
         severidade=severidade,
         descricao=None,
         latitude=latitude,
         longitude=longitude,
-        registrado_em=datetime(2026, 11, 7, 12, 0, tzinfo=UTC),
+        registrado_em=registrado_em or datetime.now(UTC),
     )
     return Envelope(
         type=EventType.RELATO_RECEBIDO,
@@ -187,3 +190,105 @@ async def test_payload_invalido_vira_erro_permanente(pool: asyncpg.Pool) -> None
         await processar_relato(pool, envelope)
 
     assert await _contar(pool, "relatos") == 0
+
+
+@pytest.mark.integration
+async def test_relato_antigo_fica_sem_ocorrencia_e_sem_evento(pool: asyncpg.Pool) -> None:
+    registrado_em = datetime.now(UTC) - timedelta(days=2)
+
+    await processar_relato(pool, _envelope(registrado_em=registrado_em))
+
+    assert await _contar(pool, "relatos") == 1
+    assert await _contar(pool, "ocorrencias") == 0
+    assert await _contar(pool, "outbox") == 0
+
+    async with pool.acquire() as conn:
+        ocorrencia_id = await conn.fetchval("SELECT ocorrencia_id FROM relatos")
+    assert ocorrencia_id is None
+
+
+@pytest.mark.integration
+async def test_segundo_relato_do_mesmo_aparelho_nao_confirma_de_novo(pool: asyncpg.Pool) -> None:
+    device_id = uuid4()
+    await processar_relato(pool, _envelope(device_id=device_id, severidade=Severidade.ALTO))
+
+    async with pool.acquire() as conn:
+        antes = await conn.fetchrow(
+            "SELECT id, confirmacoes, expira_em FROM ocorrencias ORDER BY id"
+        )
+    assert antes is not None
+    outbox_antes = await _contar(pool, "outbox")
+
+    await processar_relato(pool, _envelope(device_id=device_id, severidade=Severidade.ALTO))
+
+    async with pool.acquire() as conn:
+        depois = await conn.fetchrow(
+            "SELECT confirmacoes, expira_em FROM ocorrencias WHERE id = $1",
+            antes["id"],
+        )
+        vinculados = await conn.fetchval(
+            "SELECT count(*) FROM relatos WHERE ocorrencia_id = $1", antes["id"]
+        )
+    assert depois is not None
+    assert depois["confirmacoes"] == antes["confirmacoes"]
+    assert depois["expira_em"] == antes["expira_em"]
+    assert vinculados == 2
+    assert await _contar(pool, "ocorrencias") == 1
+    assert await _contar(pool, "outbox") == outbox_antes
+
+
+@pytest.mark.integration
+async def test_mesmo_aparelho_com_severidade_maior_eleva_e_gera_evento(pool: asyncpg.Pool) -> None:
+    device_id = uuid4()
+    await processar_relato(pool, _envelope(device_id=device_id, severidade=Severidade.BAIXO))
+    outbox_antes = await _contar(pool, "outbox")
+
+    await processar_relato(pool, _envelope(device_id=device_id, severidade=Severidade.CRITICO))
+
+    async with pool.acquire() as conn:
+        ocorrencia = await conn.fetchrow(
+            "SELECT id, confirmacoes, severidade FROM ocorrencias ORDER BY id"
+        )
+    assert ocorrencia is not None
+    assert ocorrencia["severidade"] == Severidade.CRITICO.value
+    assert ocorrencia["confirmacoes"] == 1
+
+    eventos = await _eventos(pool)
+    assert len(eventos) == outbox_antes + 1
+    routing_key, dados = eventos[-1]
+    assert routing_key == EventType.OCORRENCIA_ATUALIZADA.value
+    payload = OcorrenciaPayload.model_validate(dados["payload"])
+    assert payload.severidade is Severidade.CRITICO
+    assert payload.confirmacoes == 1
+
+
+def _pontos_em_lados_opostos_da_borda() -> tuple[tuple[float, float], tuple[float, float]]:
+    celula = geohash.encode(LAT, LON, geohash.PARTITION_PRECISION)
+    lat_min, _, lat_max, lon_max = geohash.decode_bbox(celula)
+    centro_lat = (lat_min + lat_max) / 2
+    delta_lon = 25 / (111_320.0 * math.cos(math.radians(centro_lat)))
+    oeste = (centro_lat, lon_max - delta_lon)
+    leste = (centro_lat, lon_max + delta_lon)
+    assert geohash.encode(*oeste, geohash.PARTITION_PRECISION) != geohash.encode(
+        *leste, geohash.PARTITION_PRECISION
+    )
+    return oeste, leste
+
+
+@pytest.mark.integration
+async def test_relatos_em_lados_opostos_da_borda_geram_uma_ocorrencia(
+    pool: asyncpg.Pool,
+) -> None:
+    (lat_oeste, lon_oeste), (lat_leste, lon_leste) = _pontos_em_lados_opostos_da_borda()
+
+    await asyncio.gather(
+        processar_relato(pool, _envelope(latitude=lat_oeste, longitude=lon_oeste)),
+        processar_relato(pool, _envelope(latitude=lat_leste, longitude=lon_leste)),
+    )
+
+    async with pool.acquire() as conn:
+        ocorrencias = await conn.fetch("SELECT confirmacoes FROM ocorrencias")
+    assert len(ocorrencias) == 1
+    assert ocorrencias[0]["confirmacoes"] == 2
+    assert await _contar(pool, "relatos") == 2
+    assert await _contar(pool, "outbox") == 2

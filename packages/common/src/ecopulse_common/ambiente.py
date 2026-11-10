@@ -10,18 +10,33 @@ from redis.asyncio.cluster import RedisCluster
 CHAVE_INTERESSE = "{ambiente}:interesse"
 CHAVE_COLETADO = "{ambiente}:coletado"  # hash geohash5 → epoch da última coleta
 JANELA_INTERESSE_S = 24 * 3600
+MAX_CELULAS_INTERESSE = 400
 
 
-async def registrar_interesse(redis: RedisCluster, geohash5: str, agora_s: float) -> None:
-    """ZADD com o horário do pedido (atualiza o score se já existir)."""
+async def registrar_interesse(redis: RedisCluster, geohash5: str, agora_s: float) -> bool:
+    """ZADD com o horário do pedido (atualiza o score se já existir).
+
+    Recusa célula nova quando o conjunto já tem MAX_CELULAS_INTERESSE membros, para um cliente
+    não arrastar o mapa pelo mundo e inflar a coleta. Célula já registrada continua atualizando.
+    """
+    if (
+        await redis.zscore(CHAVE_INTERESSE, geohash5) is None
+        and await redis.zcard(CHAVE_INTERESSE) >= MAX_CELULAS_INTERESSE
+    ):
+        return False
     await redis.zadd(CHAVE_INTERESSE, {geohash5: agora_s})
+    return True
 
 
 async def celulas_ativas(redis: RedisCluster, agora_s: float) -> list[str]:
     """Células pedidas na janela (ZRANGEBYSCORE agora-JANELA..+inf); remove as mais antigas
-    (ZREMRANGEBYSCORE) para o conjunto não crescer para sempre."""
+    (ZREMRANGEBYSCORE) e as mesmas do hash de coletadas (HDEL), para nada crescer para sempre."""
     limite = agora_s - JANELA_INTERESSE_S
-    await redis.zremrangebyscore(CHAVE_INTERESSE, "-inf", f"({limite}")
+    expiradas = await redis.zrangebyscore(CHAVE_INTERESSE, "-inf", f"({limite}")
+    if expiradas:
+        celulas = [str(m) for m in expiradas]
+        await redis.hdel(CHAVE_COLETADO, *celulas)
+        await redis.zremrangebyscore(CHAVE_INTERESSE, "-inf", f"({limite}")
     membros = await redis.zrangebyscore(CHAVE_INTERESSE, limite, "+inf")
     return [str(m) for m in membros]
 

@@ -2,7 +2,7 @@ import ipaddress
 import logging
 import time
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from typing import Annotated
 from uuid import UUID
@@ -110,16 +110,22 @@ def _exigir_limite(resultado: limite.Resultado, mensagem: str, contexto: dict[st
 
 def _ip_cliente(request: Request) -> str:
     """IP de origem. CF-Connecting-IP só vale quando a conexão vem de um proxy confiável (o
-    túnel da Cloudflare); de qualquer outro lugar é ignorado, então não dá para forjar o IP."""
+    túnel da Cloudflare); de qualquer outro lugar é ignorado, então não dá para forjar o IP.
+    IPv6 vira a rede /64: um cliente troca de endereço dentro do mesmo /64, mas não de rede."""
     direto = request.client.host if request.client is not None else "desconhecido"
     proxies: frozenset[str] = getattr(request.app.state, "proxies", frozenset())
+    candidato = direto
     if direto in proxies:
         cabecalho = request.headers.get("cf-connecting-ip", "").strip()
-        try:
-            return str(ipaddress.ip_address(cabecalho))
-        except ValueError:
-            pass
-    return direto
+        with suppress(ValueError):
+            candidato = str(ipaddress.ip_address(cabecalho))
+    try:
+        endereco = ipaddress.ip_address(candidato)
+    except ValueError:
+        return candidato
+    if isinstance(endereco, ipaddress.IPv6Address):
+        return str(ipaddress.ip_network(f"{endereco}/64", strict=False))
+    return str(endereco)
 
 
 async def _aplicar_limite(request: Request, device_id: UUID) -> None:
@@ -248,6 +254,12 @@ async def ler_camada(
     """Última leitura de cada célula geohash5 do retângulo visível do mapa. Registra interesse
     em todas as células (o environment coleta as que faltam em até 30 s) e devolve só as que
     já têm leitura."""
+    ip = _ip_cliente(request)
+    _exigir_limite(
+        await limite.consumir_ambiente(_redis(request), ip),
+        "muitas consultas de ambiente deste IP",
+        {"ip": ip},
+    )
     try:
         min_lon, min_lat, max_lon, max_lat = (float(valor) for valor in bbox.split(","))
         celulas = leitura.celulas_do_bbox(min_lon, min_lat, max_lon, max_lat)
@@ -258,9 +270,12 @@ async def ler_camada(
     agora = time.time()
     for celula in celulas:
         try:
-            await registrar_interesse(_redis(request), celula, agora)
+            aceita = await registrar_interesse(_redis(request), celula, agora)
         except RedisError:
             log.warning("falha ao registrar interesse da camada")
+            break
+        if not aceita:
+            log.info("limite de células de interesse atingido")
             break
 
     return await leitura.leituras_das_celulas(_pool(request), _redis(request), celulas)
@@ -273,6 +288,12 @@ async def ler_ambiente(
     lon: Annotated[float, Query(ge=-180, le=180)],
 ) -> LeituraAmbiente:
     """Última leitura ambiental da célula geohash5 do ponto (cache-aside no Redis)."""
+    ip = _ip_cliente(request)
+    _exigir_limite(
+        await limite.consumir_ambiente(_redis(request), ip),
+        "muitas consultas de ambiente deste IP",
+        {"ip": ip},
+    )
     geohash5 = geohash.encode(lat, lon, geohash.PARTITION_PRECISION)
     try:
         await registrar_interesse(_redis(request), geohash5, time.time())
@@ -389,6 +410,12 @@ async def confirmar_ocorrencia(
     if ocorrencia.status is StatusOcorrencia.EXPIRADA:
         raise HTTPException(status.HTTP_409_CONFLICT, "ocorrência expirada")
     await _aplicar_limite(request, confirmacao.device_id)
+    ip = _ip_cliente(request)
+    _exigir_limite(
+        await limite.consumir_voto(_redis(request), ip),
+        "muitos votos deste IP",
+        {"ip": ip},
+    )
     relato = RelatoRecebido(
         client_id=confirmacao.client_id,
         device_id=confirmacao.device_id,
@@ -414,6 +441,12 @@ async def resolver_ocorrencia(
     if ocorrencia.status is not StatusOcorrencia.ATIVA:
         raise HTTPException(status.HTTP_409_CONFLICT, "ocorrência encerrada")
     await _aplicar_limite(request, resolucao.device_id)
+    ip = _ip_cliente(request)
+    _exigir_limite(
+        await limite.consumir_voto(_redis(request), ip),
+        "muitos votos deste IP",
+        {"ip": ip},
+    )
     await _publicar_resolucao(
         request,
         ocorrencia,

@@ -27,6 +27,12 @@ TOKENS_POR_SEGUNDO_IP = 1.0
 # Rotas gastam a cota do OpenRouteService (2 chamadas por rota): balde próprio por IP
 CAPACIDADE_ROTA = 10
 TOKENS_POR_SEGUNDO_ROTA = 1 / 30
+# Votos ("já passou"/"ainda está"): o device_id é escolhido pelo cliente, então limita por IP
+CAPACIDADE_VOTO = 10
+TOKENS_POR_SEGUNDO_VOTO = 1 / 30
+# Consultas ambientais: cada pedido registra interesse em células para a Open-Meteo
+CAPACIDADE_AMBIENTE = 30
+TOKENS_POR_SEGUNDO_AMBIENTE = 0.5
 
 _SCRIPT = """
 local capacidade = tonumber(ARGV[1])
@@ -80,6 +86,14 @@ def chave_local(ip: str) -> str:
 
 def chave_rota(ip: str) -> str:
     return f"rl:rota:{{{ip}}}"
+
+
+def chave_voto(ip: str) -> str:
+    return f"rl:voto:{{{ip}}}"
+
+
+def chave_ambiente(ip: str) -> str:
+    return f"rl:ambiente:{{{ip}}}"
 
 
 # Registro/renovação do aparelho: 5 em rajada; depois, 1 a cada 30 s
@@ -170,3 +184,23 @@ async def consumir_aparelho(
 ) -> Resultado:
     """Tenta gastar 1 token de registro de aparelho do IP de origem."""
     return await _consumir(redis, chave_aparelho(ip), capacidade, tokens_por_segundo, {"ip": ip})
+
+
+async def consumir_voto(
+    redis: RedisCluster,
+    ip: str,
+    capacidade: int = CAPACIDADE_VOTO,
+    tokens_por_segundo: float = TOKENS_POR_SEGUNDO_VOTO,
+) -> Resultado:
+    """Tenta gastar 1 token de voto (confirmação/resolução) do IP de origem."""
+    return await _consumir(redis, chave_voto(ip), capacidade, tokens_por_segundo, {"ip": ip})
+
+
+async def consumir_ambiente(
+    redis: RedisCluster,
+    ip: str,
+    capacidade: int = CAPACIDADE_AMBIENTE,
+    tokens_por_segundo: float = TOKENS_POR_SEGUNDO_AMBIENTE,
+) -> Resultado:
+    """Tenta gastar 1 token de consulta ambiental do IP de origem."""
+    return await _consumir(redis, chave_ambiente(ip), capacidade, tokens_por_segundo, {"ip": ip})

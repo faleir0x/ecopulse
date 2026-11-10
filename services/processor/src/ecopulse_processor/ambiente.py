@@ -1,12 +1,13 @@
 """Grava as leituras do serviço environment (evento leitura.ambiente) no PostGIS."""
 
-import asyncio
 import logging
 
 import asyncpg
-from aio_pika.abc import AbstractChannel, AbstractExchange, AbstractIncomingMessage
+from aio_pika.abc import AbstractChannel, AbstractExchange
 
 from ecopulse_common import messaging
+from ecopulse_common.config import Settings
+from ecopulse_common.consumer import assinar
 from ecopulse_common.events import Envelope, LeituraAmbiente
 
 FILA = "processor.ambiente"
@@ -33,38 +34,14 @@ async def gravar(pool: asyncpg.Pool, leitura: LeituraAmbiente) -> bool:
 
 
 async def iniciar(channel: AbstractChannel, events: AbstractExchange, pool: asyncpg.Pool) -> None:
-    """Declara FILA (durável), liga em `events` com BINDING e consome (sem auto-ack):
+    """Declara FILA (durável), liga em `events` com BINDING e consome via assinar:
     corpo → Envelope → LeituraAmbiente.model_validate(payload) → gravar → ack.
-    Corpo inválido: log warning + ack (descarta). Erro de banco: log, espera 1 s,
-    nack(requeue=True)."""
+    Postgres fora do ar é transitório: backoff e nack(requeue=True) sem gastar tentativa.
+    Corpo/evento inválido e demais erros seguem a política do assinar (retry e DLQ)."""
 
-    async def _processar(message: AbstractIncomingMessage) -> None:
-        event_id = message.message_id
-        try:
-            envelope = Envelope.model_validate_json(message.body)
-            event_id = str(envelope.event_id)
-            leitura = LeituraAmbiente.model_validate(envelope.payload)
-        except (TypeError, ValueError) as exc:
-            log.warning(
-                "leitura ambiente inválida; descartando",
-                extra={"event_id": event_id, "error": f"{type(exc).__name__}: {exc}"},
-            )
-            await message.ack()
-            return
+    async def _processar(envelope: Envelope) -> None:
+        leitura = LeituraAmbiente.model_validate(envelope.payload)
+        await gravar(pool, leitura)
 
-        try:
-            await gravar(pool, leitura)
-        except Exception as exc:
-            log.warning(
-                "falha ao gravar leitura ambiente; reagendando",
-                extra={"event_id": event_id, "error": f"{type(exc).__name__}: {exc}"},
-            )
-            await asyncio.sleep(1)
-            await message.nack(requeue=True)
-            return
-
-        await message.ack()
-
-    fila = await channel.declare_queue(FILA, durable=True, arguments=messaging.QUORUM)
-    await fila.bind(events, routing_key=BINDING)
-    await fila.consume(_processar, no_ack=False)
+    dlx = (await messaging.declare_topology(channel, Settings().partitions)).dlx
+    await assinar(channel, events, FILA, (BINDING,), _processar, dlx=dlx)

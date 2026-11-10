@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import AsyncIterator
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock
 from uuid import uuid4
@@ -174,3 +175,49 @@ def test_cf_connecting_ip_invalido_usa_o_ip_da_conexao(monkeypatch: pytest.Monke
     )
 
     assert "rl:ip:{testclient}" in chaves
+
+
+def _pedido(
+    host: str,
+    *,
+    proxies: frozenset[str] = frozenset(),
+    cabecalhos: dict[str, str] | None = None,
+) -> Any:
+    """Request falsa o suficiente para _ip_cliente (client, headers e app.state.proxies)."""
+    return SimpleNamespace(
+        client=SimpleNamespace(host=host),
+        headers=cabecalhos or {},
+        app=SimpleNamespace(state=SimpleNamespace(proxies=proxies)),
+    )
+
+
+def test_ipv6_direto_vira_rede_64() -> None:
+    pedido = _pedido("2001:db8:1:2:abcd:ef01:2345:6789")
+
+    assert main._ip_cliente(pedido) == "2001:db8:1:2::/64"
+
+
+def test_ipv6_do_tunel_vira_rede_64() -> None:
+    pedido = _pedido(
+        "testclient",
+        proxies=frozenset({"testclient"}),
+        cabecalhos={"cf-connecting-ip": "2001:db8:1:2:abcd::99"},
+    )
+
+    assert main._ip_cliente(pedido) == "2001:db8:1:2::/64"
+
+
+def test_ipv4_direto_fica_inalterado() -> None:
+    pedido = _pedido("203.0.113.5")
+
+    assert main._ip_cliente(pedido) == "203.0.113.5"
+
+
+def test_ipv4_do_tunel_fica_inalterado() -> None:
+    pedido = _pedido(
+        "testclient",
+        proxies=frozenset({"testclient"}),
+        cabecalhos={"cf-connecting-ip": "198.51.100.7"},
+    )
+
+    assert main._ip_cliente(pedido) == "198.51.100.7"

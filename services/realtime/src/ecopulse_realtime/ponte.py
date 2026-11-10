@@ -8,14 +8,14 @@ Sem assinante no canal, o SPUBLISH simplesmente não entrega: o app recupera o e
 GET /v1/ocorrencias ao reconectar.
 """
 
-import asyncio
 import logging
 
-from aio_pika.abc import AbstractChannel, AbstractExchange, AbstractIncomingMessage
+from aio_pika.abc import AbstractChannel, AbstractExchange
 from redis.asyncio.cluster import RedisCluster
-from redis.exceptions import RedisError
 
 from ecopulse_common import messaging
+from ecopulse_common.config import Settings
+from ecopulse_common.consumer import assinar
 from ecopulse_common.events import Envelope, OcorrenciaPayload
 from ecopulse_realtime import protocolo
 
@@ -26,44 +26,22 @@ BINDING = "ocorrencia.*"
 
 
 async def iniciar(channel: AbstractChannel, events: AbstractExchange, redis: RedisCluster) -> None:
-    """Declara FILA (durável), liga em `events` com BINDING e consome (sem auto-ack, prefetch
-    já definido no canal pelo chamador):
-    - corpo → Envelope.model_validate_json; tipo precisa ser ocorrencia.*; payload →
-      OcorrenciaPayload; monta protocolo.Alerta e faz
-      redis.spublish(protocolo.canal(envelope.geohash[:6]), alerta.model_dump_json())
+    """Declara FILA (durável), liga em `events` com BINDING e consome via assinar:
+    - corpo → Envelope; tipo precisa ser ocorrencia.*; payload → OcorrenciaPayload;
+      monta protocolo.Alerta e faz redis.spublish(protocolo.canal(geohash[:6]), alerta)
     - sucesso → ack
-    - corpo inválido → loga warning e ack (descarta; não adianta repetir)
-    - RedisError → loga warning, espera 1 s e nack(requeue=True)
+    - evento inválido → retry/DLQ conforme a política do assinar
+    - Redis indisponível → transitório: backoff e nack(requeue=True) via assinar
     """
 
-    async def _repassar(message: AbstractIncomingMessage) -> None:
-        event_id: str | None = None
-        try:
-            envelope = Envelope.model_validate_json(message.body)
-            event_id = str(envelope.event_id)
-            if not envelope.type.value.startswith("ocorrencia."):
-                raise ValueError(f"tipo inesperado: {envelope.type.value}")
-            payload = OcorrenciaPayload.model_validate(envelope.payload)
-            alerta = protocolo.Alerta.model_validate(
-                {"type": envelope.type.value, "ocorrencia": payload}
-            )
-            await redis.spublish(protocolo.canal(envelope.geohash[:6]), alerta.model_dump_json())
-        except (TypeError, ValueError) as exc:
-            log.warning(
-                "evento inválido descartado na ponte",
-                extra={"event_id": event_id, "error": f"{type(exc).__name__}: {exc}"},
-            )
-            await message.ack()
-        except RedisError as exc:
-            log.warning(
-                "falha ao repassar evento para o Redis",
-                extra={"event_id": event_id, "error": f"{type(exc).__name__}: {exc}"},
-            )
-            await asyncio.sleep(1)
-            await message.nack(requeue=True)
-        else:
-            await message.ack()
+    async def _repassar(envelope: Envelope) -> None:
+        if not envelope.type.value.startswith("ocorrencia."):
+            raise ValueError(f"tipo inesperado: {envelope.type.value}")
+        payload = OcorrenciaPayload.model_validate(envelope.payload)
+        alerta = protocolo.Alerta.model_validate(
+            {"type": envelope.type.value, "ocorrencia": payload}
+        )
+        await redis.spublish(protocolo.canal(envelope.geohash[:6]), alerta.model_dump_json())
 
-    fila = await channel.declare_queue(FILA, durable=True, arguments=messaging.QUORUM)
-    await fila.bind(events, routing_key=BINDING)
-    await fila.consume(_repassar, no_ack=False)
+    dlx = (await messaging.declare_topology(channel, Settings().partitions)).dlx
+    await assinar(channel, events, FILA, (BINDING,), _repassar, dlx=dlx)

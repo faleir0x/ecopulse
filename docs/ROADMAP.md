@@ -62,7 +62,7 @@ Conferência com o texto da APS (seções II–V) mostrou lacunas; a proposta pe
 - [x] Rate limit também por IP (além do por aparelho)
 - [x] Ajustes finos de design listados na 4.5: miniatura 48 px no componente compartilhado, contador "N novos" em Alertas, ícone `bell-off` no vazio
 - [x] Mapa de calor interpolado (superfície contínua a partir das leituras, sem quadrados) com escala relativa à área visível e legenda em °C reais
-- [ ] Avaliar com o professor se a identificação anônima por aparelho atende (sem login)
+- [x] Identificação anônima por aparelho, sem login: a proposta não pede autenticação (decisão da equipe)
 - [x] Diálogos nativos do relato trocados por opções dentro da sheet
 - [x] Canal de notificação Android "Alertas de risco" (prioridade alta, ações "Ver no mapa" e "Silenciar 1 h")
 - [x] "Já passou" no servidor (uma marca por aparelho; encerra com min(3, confirmações)) e puxar para atualizar
@@ -70,8 +70,18 @@ Conferência com o texto da APS (seções II–V) mostrou lacunas; a proposta pe
 - [x] Cloudflare Tunnel (api/rt.faleir0x.com, perfil `tunel`) com IP real via CF-Connecting-IP só vindo do túnel
 
 ## Fase 6: Entrega
-- [ ] **6.1** CD: publicação das imagens no GHCR (packages), com proveniência e SBOM; `docker-compose.ghcr.yml` sobe a stack pelas imagens. Falta: rodar em main/tag
+- [ ] **6.1** CD: publicação das imagens no GHCR (packages), com proveniência e SBOM; `docker-compose.ghcr.yml` sobe a stack pelas imagens. Já roda a cada push na main; falta validar numa tag
 - [ ] **6.4** APK do app nas Releases do GitHub (workflow `apk.yml` por tag: expo prebuild + Gradle no runner, assinatura com apksigner). Falta: segredos no repositório e a 1ª tag
-- [ ] **6.5** Push remoto com Firebase (FCM): serviço `notifier` consumindo `ocorrencia.*` e enviando para os aparelhos das células; alerta com o app fechado (depende do APK da 6.4)
+- [ ] **6.5** Push remoto com Firebase (FCM): serviço `notifier` consumindo `ocorrencia.*` e enviando para os aparelhos das células; alerta com o app fechado. Implementado e testado de ponta a ponta com Firebase real; falta validar no APK (6.4) com o app fechado
 - [x] **6.2** Scripts dos cenários de demonstração (falhas, escala, offline): `infra/demo/`, validados contra a stack local
 - [x] **6.3** Base do relatório final (estrutura ABNT/UNIP): `docs/relatorio/EcoPulse-relatorio-final.docx`; falta a equipe preencher os campos marcados
+
+## Fase 7: Auditoria e aderência final à proposta
+Auditoria do código (correção, segurança, arquitetura e app) e lacunas do texto da APS.
+- [x] **7.1** Infra: banco, broker e cache só no `127.0.0.1`; migrações versionadas (serviço `migrate`); notifier no scan do CI
+- [x] **7.2** Backend: queda do banco não manda relato para a DLQ; consumidores de eventos num só módulo (`consumer.assinar`); trava por vizinhança no agrupamento; relato atrasado sem reabrir ocorrência; um voto por aparelho; limites para votos e ambiente; leitura do pub/sub sem espera
+- [x] **7.3** App: localização num módulo único; alertas sem duplicar; push abre a ocorrência com o app fechado; WebSocket morto detectado
+- [x] **7.4** Ordem dos eventos por `versao`; zona de influência única (servidor e app, com teste de contrato); teste e2e relato → alerta no CI; testes de integração não passam mais em silêncio
+- [x] **7.5** Lacunas da proposta: inversão térmica (Open-Meteo em níveis de pressão), celular como nó sensor (telemetria de presença por célula), PostgreSQL com réplica e failover manual (`infra/demo/falha-postgres.sh`)
+- [ ] **7.6** Contrato da API gerado para o app (tipos TypeScript a partir do OpenAPI)
+- [ ] **7.7** Mapa de calor que some fora de Ribeirão Preto / ao afastar o zoom (investigar no celular)

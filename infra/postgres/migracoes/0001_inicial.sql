@@ -1,4 +1,4 @@
--- Executado só na criação do volume. Para aplicar mudanças: docker compose down -v
+-- Esquema inicial (fases 1–6). Idempotente: aplicado pelo serviço migrate (postgres/migrar.sh).
 CREATE EXTENSION IF NOT EXISTS postgis;
 
 -- Agrupamento de relatos próximos do mesmo tipo (ver docs/ARQUITETURA.md)

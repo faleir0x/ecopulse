@@ -25,6 +25,7 @@ x-python-service: &python-service
   depends_on:
     rabbitmq: { condition: service_healthy }
     postgres: { condition: service_healthy }
+    migrate: { condition: service_completed_successfully }
     redis-cluster-init: { condition: service_completed_successfully }
 
 services:
@@ -45,7 +46,8 @@ services:
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
       interval: 10s
-      timeout: 5s
+      # O CLI sobe uma VM Erlang a cada checagem: com a máquina carregada passa de 5 s
+      timeout: 15s
       retries: 18
 
   rabbitmq-2:
@@ -64,7 +66,8 @@ services:
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
       interval: 10s
-      timeout: 5s
+      # O CLI sobe uma VM Erlang a cada checagem: com a máquina carregada passa de 5 s
+      timeout: 15s
       retries: 18
 
   rabbitmq-3:
@@ -83,7 +86,8 @@ services:
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
       interval: 10s
-      timeout: 5s
+      # O CLI sobe uma VM Erlang a cada checagem: com a máquina carregada passa de 5 s
+      timeout: 15s
       retries: 18
 
   rabbitmq:
@@ -91,8 +95,8 @@ services:
     restart: unless-stopped
     networks: [ecopulse]
     ports:
-      - "${RABBITMQ_PORT:-5672}:5672"
-      - "${RABBITMQ_UI_PORT:-15672}:15672"
+      - "127.0.0.1:${RABBITMQ_PORT:-5672}:5672"
+      - "127.0.0.1:${RABBITMQ_UI_PORT:-15672}:15672"
     volumes:
       - ./rabbitmq/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
     healthcheck:
@@ -110,19 +114,37 @@ services:
     restart: unless-stopped
     networks: [ecopulse]
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     environment:
       POSTGRES_USER: ecopulse
       POSTGRES_PASSWORD: ecopulse
       POSTGRES_DB: ecopulse
     volumes:
       - pg_data:/var/lib/postgresql/data
-      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ecopulse -d ecopulse"]  # TCP: ignora o servidor temporário do initdb
       interval: 10s
       timeout: 5s
       retries: 10
+
+  # Aplica as migrações pendentes (postgres/migracoes) e termina; os serviços esperam por ele.
+  # Banco de testes: docker compose run --rm -e PGDATABASE=ecopulse_teste migrate
+  migrate:
+    image: postgis/postgis:16-3.4
+    networks: [ecopulse]
+    restart: "no"
+    entrypoint: ["sh", "/migrar.sh"]
+    environment:
+      PGHOST: postgres
+      PGUSER: ecopulse
+      PGPASSWORD: ecopulse
+      PGDATABASE: ecopulse
+      PGOPTIONS: -c client_min_messages=warning
+    volumes:
+      - ./postgres/migrar.sh:/migrar.sh:ro
+      - ./postgres/migracoes:/migracoes:ro
+    depends_on:
+      postgres: { condition: service_healthy }
 
   # Redis Cluster: 3 mestres + 3 réplicas, IPs fixos para o cluster sobreviver a reinícios.
   # Os nós se anunciam pelo hostname; fora do Docker, use ECOPULSE_REDIS_REMAP_LOCALHOST=true.
@@ -134,7 +156,7 @@ services:
       --cluster-announce-hostname redis-1 --cluster-preferred-endpoint-type hostname
       --cluster-node-timeout 5000
       --appendonly yes
-    ports: ["7001:7001"]
+    ports: ["127.0.0.1:7001:7001"]
     networks: { ecopulse: { ipv4_address: 10.89.70.11 } }
     volumes: [redis_1:/data]
 
@@ -146,7 +168,7 @@ services:
       --cluster-announce-hostname redis-2 --cluster-preferred-endpoint-type hostname
       --cluster-node-timeout 5000
       --appendonly yes
-    ports: ["7002:7002"]
+    ports: ["127.0.0.1:7002:7002"]
     networks: { ecopulse: { ipv4_address: 10.89.70.12 } }
     volumes: [redis_2:/data]
 
@@ -158,7 +180,7 @@ services:
       --cluster-announce-hostname redis-3 --cluster-preferred-endpoint-type hostname
       --cluster-node-timeout 5000
       --appendonly yes
-    ports: ["7003:7003"]
+    ports: ["127.0.0.1:7003:7003"]
     networks: { ecopulse: { ipv4_address: 10.89.70.13 } }
     volumes: [redis_3:/data]
 
@@ -170,7 +192,7 @@ services:
       --cluster-announce-hostname redis-4 --cluster-preferred-endpoint-type hostname
       --cluster-node-timeout 5000
       --appendonly yes
-    ports: ["7004:7004"]
+    ports: ["127.0.0.1:7004:7004"]
     networks: { ecopulse: { ipv4_address: 10.89.70.14 } }
     volumes: [redis_4:/data]
 
@@ -182,7 +204,7 @@ services:
       --cluster-announce-hostname redis-5 --cluster-preferred-endpoint-type hostname
       --cluster-node-timeout 5000
       --appendonly yes
-    ports: ["7005:7005"]
+    ports: ["127.0.0.1:7005:7005"]
     networks: { ecopulse: { ipv4_address: 10.89.70.15 } }
     volumes: [redis_5:/data]
 
@@ -194,7 +216,7 @@ services:
       --cluster-announce-hostname redis-6 --cluster-preferred-endpoint-type hostname
       --cluster-node-timeout 5000
       --appendonly yes
-    ports: ["7006:7006"]
+    ports: ["127.0.0.1:7006:7006"]
     networks: { ecopulse: { ipv4_address: 10.89.70.16 } }
     volumes: [redis_6:/data]
 

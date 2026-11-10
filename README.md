@@ -14,11 +14,14 @@ docker compose up -d --build
 | Serviço | Endereço |
 |---|---|
 | API | http://localhost:8000/docs |
+| WebSocket de alertas (realtime) | ws://localhost:8002/v1/ws |
 | Painel do RabbitMQ | http://localhost:15672 (`ecopulse` / `ecopulse`) |
 | PostgreSQL + PostGIS | localhost:5432 |
-| Redis Cluster | localhost:7001, 7002, 7003 |
+| Redis Cluster | localhost:7001 a 7006 |
 
-A rede Docker usa a sub-rede `10.89.70.0/24` (IPs fixos para o Redis Cluster sobreviver a reinícios). O banco é criado pelo `infra/postgres/init.sql` só na primeira vez; para recriar: `docker compose down -v`.
+API e realtime ficam acessíveis na rede local (o celular usa). PostgreSQL, RabbitMQ e Redis só no `127.0.0.1` do laptop: as credenciais acima são de desenvolvimento e não devem ficar expostas na rede.
+
+A rede Docker usa a sub-rede `10.89.70.0/24` (IPs fixos para o Redis Cluster sobreviver a reinícios). O esquema do banco vem das migrações em `infra/postgres/migracoes/`, aplicadas em ordem pelo serviço `migrate` a cada `docker compose up` (só as que faltam, registradas em `schema_migrations`). Mudança de esquema = novo arquivo `NNNN_descricao.sql`; nunca edite uma migração já aplicada.
 
 ## Documentação
 
@@ -38,11 +41,15 @@ uv run mypy packages services
 uv run pytest
 ```
 
-Testes de integração (precisam da infra, **sem** a API e o processor rodando, senão o processor consome as mensagens dos testes). Eles **apagam as tabelas** do banco usado; para não perder os dados de demonstração, rode-os num banco separado (ex.: `createdb -U ecopulse ecopulse_teste` + `infra/postgres/init.sql`):
+Testes de integração (precisam da infra, **sem** a API e o processor rodando, senão o processor consome as mensagens dos testes). Eles **apagam as tabelas** do banco usado; para não perder os dados de demonstração, rode-os num banco separado:
 
 ```bash
-cd infra && docker compose stop api processor && cd ..
-ECOPULSE_DATABASE_URL=postgresql://ecopulse:ecopulse@localhost:5432/ecopulse_teste uv run pytest -m integration
+cd infra
+docker compose exec postgres createdb -U ecopulse ecopulse_teste   # só na primeira vez
+docker compose run --rm -e PGDATABASE=ecopulse_teste migrate
+docker compose stop api processor && cd ..
+ECOPULSE_DATABASE_URL=postgresql://ecopulse:ecopulse@localhost:5432/ecopulse_teste \
+ECOPULSE_REDIS_REMAP_LOCALHOST=true uv run pytest -m integration
 ```
 
 ## App mobile (React Native + Expo)

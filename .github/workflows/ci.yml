@@ -57,6 +57,7 @@ jobs:
           docker compose up -d --wait --wait-timeout 400 \
             rabbitmq postgres redis-1 redis-2 redis-3 redis-4 redis-5 redis-6
           docker compose up --no-deps --exit-code-from redis-cluster-init redis-cluster-init
+          docker compose up --no-deps --exit-code-from migrate migrate
       - name: Testes de integração
         env:
           ECOPULSE_REDIS_REMAP_LOCALHOST: "true"
@@ -162,7 +163,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [api, processor, realtime, environment]
+        service: [api, processor, realtime, environment, notifier]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Hadolint

@@ -21,9 +21,6 @@ class RedisFalso:
         self.dados[chave] = valor
         return True
 
-    async def eval(self, *_: Any) -> list[Any]:
-        return [1, "0"]
-
 
 def _feature(nome: str, rotulo: str, lon: float, lat: float) -> dict[str, Any]:
     return {
@@ -155,15 +152,13 @@ async def test_ors_fora_levanta_indisponivel() -> None:
             )
 
 
-def test_endpoint_exige_tres_letras() -> None:
-    main.app.state.redis = RedisFalso()
+def test_endpoint_exige_tres_letras(limitador_falso: Any) -> None:
     resposta = TestClient(main.app).get("/v1/locais", params={"q": "ab"})
 
     assert resposta.status_code == 422
 
 
-def test_endpoint_sem_chave_retorna_503() -> None:
-    main.app.state.redis = RedisFalso()
+def test_endpoint_sem_chave_retorna_503(limitador_falso: Any) -> None:
     main.app.dependency_overrides[rotas.obter_settings] = lambda: Settings(ors_api_key="")
     try:
         resposta = TestClient(main.app).get("/v1/locais", params={"q": "Pinheiros"})

@@ -1,4 +1,3 @@
-import asyncio
 import hashlib
 import ipaddress
 import logging
@@ -18,6 +17,7 @@ from redis.asyncio.cluster import RedisCluster
 from redis.exceptions import RedisError
 
 from ecopulse_api import aparelhos, invalidacao, leitura, limite, locais, rotas
+from ecopulse_api.portas import Limitador, Publicador, limitador, publicador
 from ecopulse_api.schemas import (
     AparelhoIn,
     CelulaAmbiente,
@@ -54,9 +54,6 @@ from ecopulse_common.messaging import Topology
 from ecopulse_common.telemetria import JANELA_PRESENCA_S, contar_presenca
 
 log = logging.getLogger(__name__)
-
-# Publisher confirm sem prazo pendura a requisição com o broker em alarme de memória.
-TIMEOUT_PUBLICACAO_S = 5
 
 
 @dataclass
@@ -150,21 +147,21 @@ def _ip_cliente(request: Request) -> str:
     return str(endereco)
 
 
-async def _aplicar_limite(request: Request, device_id: UUID) -> None:
+async def _aplicar_limite(request: Request, limitador: Limitador, device_id: UUID) -> None:
     """Limita pelo aparelho e pelo IP de origem (ver _ip_cliente; X-Forwarded-For é ignorado)."""
-    resultado_aparelho = await limite.consumir(_redis(request), device_id)
+    resultado_aparelho = await limitador.consumir("relato", str(device_id))
     _exigir_limite(
         resultado_aparelho,
         "muitos relatos deste aparelho",
         {"aparelho": _aparelho(device_id)},
     )
     ip = _ip_cliente(request)
-    resultado_ip = await limite.consumir_ip(_redis(request), ip)
+    resultado_ip = await limitador.consumir("ip", ip)
     _exigir_limite(resultado_ip, "muitos relatos deste IP", {"ip": ip})
 
 
 async def _publicar_evento(
-    request: Request,
+    publicador: Publicador,
     envelope: Envelope,
     *,
     falha: str,
@@ -174,8 +171,7 @@ async def _publicar_evento(
     """Publica no exchange de eventos. Broker fora ou sem publisher confirm em 5 s → 503 (o
     app mantém na outbox e tenta de novo)."""
     try:
-        async with asyncio.timeout(TIMEOUT_PUBLICACAO_S):
-            await messaging.publish(_broker(request).topology.events, envelope)
+        await publicador.publicar(envelope)
     except TimeoutError as exc:
         log.error("timeout ao publicar evento", extra=contexto)
         raise HTTPException(
@@ -192,7 +188,7 @@ async def _publicar_evento(
     log.info(aceito, extra=contexto)
 
 
-async def _publicar_relato(request: Request, relato: RelatoRecebido) -> None:
+async def _publicar_relato(publicador: Publicador, relato: RelatoRecebido) -> None:
     """Publica `relato.recebido`. O event_id é o próprio client_id: um reenvio do app gera a
     mesma mensagem lógica. Broker fora → 503 (o app mantém na outbox e tenta de novo)."""
     envelope = Envelope(
@@ -202,7 +198,7 @@ async def _publicar_relato(request: Request, relato: RelatoRecebido) -> None:
         payload=relato.model_dump(mode="json"),
     )
     await _publicar_evento(
-        request,
+        publicador,
         envelope,
         falha="falha ao publicar relato",
         aceito="relato aceito",
@@ -211,7 +207,7 @@ async def _publicar_relato(request: Request, relato: RelatoRecebido) -> None:
 
 
 async def _publicar_resolucao(
-    request: Request, ocorrencia: OcorrenciaPayload, resolucao: ResolucaoRecebida
+    publicador: Publicador, ocorrencia: OcorrenciaPayload, resolucao: ResolucaoRecebida
 ) -> None:
     """Publica `resolucao.recebida` na mesma partição dos relatos da área da ocorrência."""
     envelope = Envelope(
@@ -221,7 +217,7 @@ async def _publicar_resolucao(
         payload=resolucao.model_dump(mode="json"),
     )
     await _publicar_evento(
-        request,
+        publicador,
         envelope,
         falha="falha ao publicar resolução",
         aceito="resolução aceita",
@@ -229,7 +225,7 @@ async def _publicar_resolucao(
     )
 
 
-async def _publicar_telemetria(request: Request, telemetria: TelemetriaIn) -> None:
+async def _publicar_telemetria(publicador: Publicador, telemetria: TelemetriaIn) -> None:
     """Publica `telemetria.aparelho` só com a célula geohash6 (nunca a coordenada exata)."""
     celula = geohash.encode(telemetria.latitude, telemetria.longitude, geohash.CELL_PRECISION)
     envelope = Envelope(
@@ -243,7 +239,7 @@ async def _publicar_telemetria(request: Request, telemetria: TelemetriaIn) -> No
         ).model_dump(mode="json"),
     )
     await _publicar_evento(
-        request,
+        publicador,
         envelope,
         falha="falha ao publicar telemetria",
         aceito="telemetria aceita",
@@ -266,24 +262,34 @@ async def ready(request: Request) -> dict[str, str]:
 
 
 @app.post("/v1/relatos", status_code=status.HTTP_202_ACCEPTED)
-async def criar_relato(relato: RelatoIn, request: Request) -> RelatoAceito:
+async def criar_relato(
+    relato: RelatoIn,
+    request: Request,
+    limitador: Annotated[Limitador, Depends(limitador)],
+    publicador: Annotated[Publicador, Depends(publicador)],
+) -> RelatoAceito:
     """Aceita o relato e publica `relato.recebido`. Só responde 202 após o confirm do broker."""
-    await _aplicar_limite(request, relato.device_id)
-    await _publicar_relato(request, RelatoRecebido(**relato.model_dump()))
+    await _aplicar_limite(request, limitador, relato.device_id)
+    await _publicar_relato(publicador, RelatoRecebido(**relato.model_dump()))
     return RelatoAceito(client_id=relato.client_id)
 
 
 @app.post("/v1/telemetria", status_code=status.HTTP_202_ACCEPTED)
-async def enviar_telemetria(telemetria: TelemetriaIn, request: Request) -> dict[str, bool]:
+async def enviar_telemetria(
+    telemetria: TelemetriaIn,
+    request: Request,
+    limitador: Annotated[Limitador, Depends(limitador)],
+    publicador: Annotated[Publicador, Depends(publicador)],
+) -> dict[str, bool]:
     """Aceita o sinal de presença do aparelho e publica `telemetria.aparelho` com a célula
     geohash6. A coordenada exata não sai deste endpoint (nem para o broker, nem para o log)."""
     ip = _ip_cliente(request)
     _exigir_limite(
-        await limite.consumir_telemetria(_redis(request), ip),
+        await limitador.consumir("telemetria", ip),
         "muita telemetria deste IP",
         {"ip": ip},
     )
-    await _publicar_telemetria(request, telemetria)
+    await _publicar_telemetria(publicador, telemetria)
     return {"aceito": True}
 
 
@@ -317,6 +323,7 @@ async def ler_camada(
     request: Request,
     response: Response,
     bbox: Annotated[str, Query(description="min_lon,min_lat,max_lon,max_lat")],
+    limitador: Annotated[Limitador, Depends(limitador)],
 ) -> list[CelulaAmbiente]:
     """Última leitura das células geohash5 do retângulo visível do mapa. Em áreas grandes a
     amostra vira uma grade regular de até MAX_CELULAS (a superfície do app interpola entre os
@@ -325,7 +332,7 @@ async def ler_camada(
     quantas células amostradas ainda não têm leitura (o app pode pedir de novo mais cedo)."""
     ip = _ip_cliente(request)
     _exigir_limite(
-        await limite.consumir_ambiente(_redis(request), ip),
+        await limitador.consumir("ambiente", ip),
         "muitas consultas de ambiente deste IP",
         {"ip": ip},
     )
@@ -358,11 +365,12 @@ async def ler_ambiente(
     request: Request,
     lat: Annotated[float, Query(ge=-90, le=90)],
     lon: Annotated[float, Query(ge=-180, le=180)],
+    limitador: Annotated[Limitador, Depends(limitador)],
 ) -> LeituraAmbiente:
     """Última leitura ambiental da célula geohash5 do ponto (cache-aside no Redis)."""
     ip = _ip_cliente(request)
     _exigir_limite(
-        await limite.consumir_ambiente(_redis(request), ip),
+        await limitador.consumir("ambiente", ip),
         "muitas consultas de ambiente deste IP",
         {"ip": ip},
     )
@@ -383,12 +391,13 @@ async def ler_presenca(
     request: Request,
     lat: Annotated[float, Query(ge=-90, le=90)],
     lon: Annotated[float, Query(ge=-180, le=180)],
+    limitador: Annotated[Limitador, Depends(limitador)],
 ) -> Presenca:
     """Aparelhos com sinal na janela, somando a célula geohash6 do ponto e as 8 vizinhas.
     Só a contagem sai daqui; o Redis guarda apenas device_id → último sinal por célula."""
     ip = _ip_cliente(request)
     _exigir_limite(
-        await limite.consumir_ambiente(_redis(request), ip),
+        await limitador.consumir("ambiente", ip),
         "muitas consultas de presença deste IP",
         {"ip": ip},
     )
@@ -408,6 +417,7 @@ async def buscar_locais(
     q: Annotated[str, Query(min_length=locais.TAMANHO_MINIMO, max_length=locais.TAMANHO_MAXIMO)],
     cliente_ors: Annotated[httpx.AsyncClient, Depends(rotas.obter_cliente_ors)],
     settings: Annotated[Settings, Depends(rotas.obter_settings)],
+    limitador: Annotated[Limitador, Depends(limitador)],
     perto: Annotated[str | None, Query(description="lat,lon de referência")] = None,
 ) -> list[LocalEncontrado]:
     """Bairros/endereços no Brasil para quem está sem GPS (geocodificação do ORS, cache 1 dia)."""
@@ -420,9 +430,7 @@ async def buscar_locais(
         except rotas.CoordenadaInvalida as exc:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
     ip = _ip_cliente(request)
-    _exigir_limite(
-        await limite.consumir_local(_redis(request), ip), "muitas buscas deste IP", {"ip": ip}
-    )
+    _exigir_limite(await limitador.consumir("local", ip), "muitas buscas deste IP", {"ip": ip})
     try:
         return await locais.buscar(
             _redis(request),
@@ -447,6 +455,7 @@ async def calcular_rota(
     destino: Annotated[str, Query(description="lat,lon")],
     cliente_ors: Annotated[httpx.AsyncClient, Depends(rotas.obter_cliente_ors)],
     settings: Annotated[Settings, Depends(rotas.obter_settings)],
+    limitador: Annotated[Limitador, Depends(limitador)],
     modo: Annotated[ModoRota, Query()] = "pedestre",
 ) -> RotaSegura:
     """Rota de A até B desviando das ocorrências ativas, comparada com a rota direta."""
@@ -457,9 +466,7 @@ async def calcular_rota(
         if not settings.ors_api_key:
             raise rotas.OrsNaoConfigurado
         ip = _ip_cliente(request)
-        _exigir_limite(
-            await limite.consumir_rota(_redis(request), ip), "muitas rotas deste IP", {"ip": ip}
-        )
+        _exigir_limite(await limitador.consumir("rota", ip), "muitas rotas deste IP", {"ip": ip})
         return await rotas.rota_segura(
             _pool(request),
             _redis(request),
@@ -496,7 +503,11 @@ async def detalhar_ocorrencia(ocorrencia_id: int, request: Request) -> Ocorrenci
 
 @app.post("/v1/ocorrencias/{ocorrencia_id}/confirmacoes", status_code=status.HTTP_202_ACCEPTED)
 async def confirmar_ocorrencia(
-    ocorrencia_id: int, confirmacao: ConfirmacaoIn, request: Request
+    ocorrencia_id: int,
+    confirmacao: ConfirmacaoIn,
+    request: Request,
+    limitador: Annotated[Limitador, Depends(limitador)],
+    publicador: Annotated[Publicador, Depends(publicador)],
 ) -> RelatoAceito:
     """Confirmar = relatar o mesmo tipo e severidade no local da ocorrência; o processor
     agrupa e incrementa as confirmações. 409 se a ocorrência já expirou."""
@@ -505,10 +516,10 @@ async def confirmar_ocorrencia(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "ocorrência não encontrada")
     if ocorrencia.status is StatusOcorrencia.EXPIRADA:
         raise HTTPException(status.HTTP_409_CONFLICT, "ocorrência expirada")
-    await _aplicar_limite(request, confirmacao.device_id)
+    await _aplicar_limite(request, limitador, confirmacao.device_id)
     ip = _ip_cliente(request)
     _exigir_limite(
-        await limite.consumir_voto(_redis(request), ip),
+        await limitador.consumir("voto", ip),
         "muitos votos deste IP",
         {"ip": ip},
     )
@@ -521,13 +532,17 @@ async def confirmar_ocorrencia(
         longitude=ocorrencia.longitude,
         registrado_em=confirmacao.registrado_em,
     )
-    await _publicar_relato(request, relato)
+    await _publicar_relato(publicador, relato)
     return RelatoAceito(client_id=confirmacao.client_id)
 
 
 @app.post("/v1/ocorrencias/{ocorrencia_id}/resolucoes", status_code=status.HTTP_202_ACCEPTED)
 async def resolver_ocorrencia(
-    ocorrencia_id: int, resolucao: ResolucaoIn, request: Request
+    ocorrencia_id: int,
+    resolucao: ResolucaoIn,
+    request: Request,
+    limitador: Annotated[Limitador, Depends(limitador)],
+    publicador: Annotated[Publicador, Depends(publicador)],
 ) -> RelatoAceito:
     """Marca a ocorrência como "já passou". Cada aparelho conta uma vez; o processor encerra
     quando as marcações chegam a min(3, confirmações). 409 se a ocorrência já não está ativa."""
@@ -536,15 +551,15 @@ async def resolver_ocorrencia(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "ocorrência não encontrada")
     if ocorrencia.status is not StatusOcorrencia.ATIVA:
         raise HTTPException(status.HTTP_409_CONFLICT, "ocorrência encerrada")
-    await _aplicar_limite(request, resolucao.device_id)
+    await _aplicar_limite(request, limitador, resolucao.device_id)
     ip = _ip_cliente(request)
     _exigir_limite(
-        await limite.consumir_voto(_redis(request), ip),
+        await limitador.consumir("voto", ip),
         "muitos votos deste IP",
         {"ip": ip},
     )
     await _publicar_resolucao(
-        request,
+        publicador,
         ocorrencia,
         ResolucaoRecebida(
             client_id=resolucao.client_id,
@@ -557,11 +572,16 @@ async def resolver_ocorrencia(
 
 
 @app.put("/v1/aparelhos/{aparelho_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def registrar_aparelho(aparelho_id: UUID, dados: AparelhoIn, request: Request) -> None:
+async def registrar_aparelho(
+    aparelho_id: UUID,
+    dados: AparelhoIn,
+    request: Request,
+    limitador: Annotated[Limitador, Depends(limitador)],
+) -> None:
     """Registra/renova o aparelho para push remoto (ver AparelhoIn), com limite por IP."""
     ip = _ip_cliente(request)
     _exigir_limite(
-        await limite.consumir_aparelho(_redis(request), ip),
+        await limitador.consumir("aparelho", ip),
         "muitos registros deste IP",
         {"ip": ip},
     )

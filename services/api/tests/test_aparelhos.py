@@ -10,19 +10,9 @@ from ecopulse_api.schemas import AparelhoIn
 from ecopulse_common.events import Severidade, TipoRisco
 
 
-class RedisLiberado:
-    async def eval(self, *_: Any) -> list[Any]:
-        return [1, "0"]
-
-
-class RedisEsgotado:
-    async def eval(self, *_: Any) -> list[Any]:
-        return [0, "7"]
-
-
 @pytest.fixture
 def chamadas(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, limitador_falso: Any
 ) -> tuple[list[tuple[UUID, AparelhoIn]], list[UUID]]:
     registros: list[tuple[UUID, AparelhoIn]] = []
     remocoes: list[UUID] = []
@@ -36,7 +26,6 @@ def chamadas(
     monkeypatch.setattr(aparelhos, "registrar", fake_registrar)
     monkeypatch.setattr(aparelhos, "remover", fake_remover)
     main.app.state.pool = MagicMock()
-    main.app.state.redis = RedisLiberado()
     return registros, remocoes
 
 
@@ -108,10 +97,10 @@ def test_validacao_responde_422(
 
 
 def test_limite_negado_responde_429(
-    chamadas: tuple[list[tuple[UUID, AparelhoIn]], list[UUID]],
+    chamadas: tuple[list[tuple[UUID, AparelhoIn]], list[UUID]], limitador_falso: Any
 ) -> None:
     registros, _ = chamadas
-    main.app.state.redis = RedisEsgotado()
+    limitador_falso.negar("aparelho", 7)
 
     resposta = TestClient(main.app).put(f"/v1/aparelhos/{uuid4()}", json=_dados())
 

@@ -1,5 +1,4 @@
 from typing import Any
-from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest
@@ -7,28 +6,7 @@ from aio_pika.exceptions import AMQPConnectionError
 from fastapi.testclient import TestClient
 
 from ecopulse_api import main
-from ecopulse_common import messaging
 from ecopulse_common.events import Envelope, EventType
-
-
-class RedisLiberado:
-    """Dublê do Redis Cluster: o token bucket sempre libera."""
-
-    async def eval(self, *_: Any) -> list[Any]:
-        return [1, "0"]
-
-
-@pytest.fixture
-def publicados(monkeypatch: pytest.MonkeyPatch) -> list[Envelope]:
-    enviados: list[Envelope] = []
-
-    async def fake_publish(exchange: Any, envelope: Envelope, **_: Any) -> None:
-        enviados.append(envelope)
-
-    monkeypatch.setattr(messaging, "publish", fake_publish)
-    main.app.state.broker = MagicMock()
-    main.app.state.redis = RedisLiberado()
-    return enviados
 
 
 def _relato(**extra: Any) -> dict[str, Any]:
@@ -77,26 +55,18 @@ def test_rejeita_payload_invalido(publicados: list[Envelope], invalido: dict[str
     assert publicados == []
 
 
-def test_broker_fora_responde_503(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def falha(*_: Any, **__: Any) -> None:
-        raise AMQPConnectionError("caiu")
-
-    monkeypatch.setattr(messaging, "publish", falha)
-    main.app.state.broker = MagicMock()
-    main.app.state.redis = RedisLiberado()
+def test_broker_fora_responde_503(publicador_falso: Any, limitador_falso: Any) -> None:
+    del limitador_falso  # só garante o override do limite
+    publicador_falso.erro = AMQPConnectionError("caiu")
     resposta = TestClient(main.app).post("/v1/relatos", json=_relato())
 
     assert resposta.status_code == 503
     assert resposta.headers["retry-after"] == "5"
 
 
-def test_publicacao_sem_prazo_responde_503(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def demora(*_: Any, **__: Any) -> None:
-        raise TimeoutError
-
-    monkeypatch.setattr(messaging, "publish", demora)
-    main.app.state.broker = MagicMock()
-    main.app.state.redis = RedisLiberado()
+def test_publicacao_sem_prazo_responde_503(publicador_falso: Any, limitador_falso: Any) -> None:
+    del limitador_falso  # só garante o override do limite
+    publicador_falso.erro = TimeoutError()
     resposta = TestClient(main.app).post("/v1/relatos", json=_relato())
 
     assert resposta.status_code == 503

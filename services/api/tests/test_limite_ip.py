@@ -2,7 +2,6 @@ import asyncio
 from collections.abc import AsyncIterator
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest
@@ -11,7 +10,6 @@ from redis.asyncio.cluster import RedisCluster
 from redis.exceptions import ConnectionError as RedisConnectionError
 
 from ecopulse_api import limite, main
-from ecopulse_common import messaging
 from ecopulse_common.cache import create_cluster
 from ecopulse_common.config import Settings
 
@@ -63,17 +61,9 @@ def test_chave_ip_usa_hash_tag() -> None:
 
 
 def test_endpoint_nega_por_ip_sem_confiar_em_x_forwarded_for(
-    monkeypatch: pytest.MonkeyPatch,
+    publicador_falso: Any, limitador_falso: Any
 ) -> None:
-    publicados: list[Any] = []
-    redis = RedisSoIpEsgotado()
-
-    async def fake_publish(*args: Any, **_: Any) -> None:
-        publicados.append(args)
-
-    monkeypatch.setattr(messaging, "publish", fake_publish)
-    main.app.state.broker = MagicMock()
-    main.app.state.redis = redis
+    limitador_falso.negar("ip", 4)
     resposta = TestClient(main.app).post(
         "/v1/relatos",
         json=_relato(),
@@ -82,9 +72,9 @@ def test_endpoint_nega_por_ip_sem_confiar_em_x_forwarded_for(
 
     assert resposta.status_code == 429
     assert resposta.headers["retry-after"] == "4"
-    assert publicados == []
-    assert "rl:ip:{testclient}" in redis.chaves
-    assert all("198.51.100.99" not in chave for chave in redis.chaves)
+    assert publicador_falso.envelopes == []
+    assert ("ip", "testclient") in limitador_falso.chamadas
+    assert all("198.51.100.99" not in chave for _, chave in limitador_falso.chamadas)
 
 
 @pytest.fixture
@@ -135,46 +125,45 @@ async def test_endpoint_respeita_balde_do_ip(cliente: TestClient, redis: RedisCl
 
 
 def _post_com_cabecalhos(
-    monkeypatch: pytest.MonkeyPatch, proxies: frozenset[str], cabecalhos: dict[str, str]
-) -> list[str]:
-    """Faz um POST de relato e devolve as chaves de balde consultadas."""
-
-    async def fake_publish(*_: Any, **__: Any) -> None:
-        return None
-
-    monkeypatch.setattr(messaging, "publish", fake_publish)
-    redis = RedisSoIpEsgotado()
-    main.app.state.broker = MagicMock()
-    main.app.state.redis = redis
+    limitador: Any, proxies: frozenset[str], cabecalhos: dict[str, str]
+) -> list[tuple[str, str]]:
+    """Faz um POST de relato e devolve os baldes consultados."""
     main.app.state.proxies = proxies
     try:
         TestClient(main.app).post("/v1/relatos", json=_relato(), headers=cabecalhos)
     finally:
         main.app.state.proxies = frozenset()
-    return redis.chaves
+    chamadas: list[tuple[str, str]] = limitador.chamadas
+    return chamadas
 
 
-def test_cf_connecting_ip_vale_quando_vem_do_tunel(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cf_connecting_ip_vale_quando_vem_do_tunel(
+    publicador_falso: Any, limitador_falso: Any
+) -> None:
     chaves = _post_com_cabecalhos(
-        monkeypatch, frozenset({"testclient"}), {"CF-Connecting-IP": "203.0.113.5"}
+        limitador_falso, frozenset({"testclient"}), {"CF-Connecting-IP": "203.0.113.5"}
     )
 
-    assert "rl:ip:{203.0.113.5}" in chaves
+    assert ("ip", "203.0.113.5") in chaves
 
 
-def test_cf_connecting_ip_ignorado_fora_do_tunel(monkeypatch: pytest.MonkeyPatch) -> None:
-    chaves = _post_com_cabecalhos(monkeypatch, frozenset(), {"CF-Connecting-IP": "203.0.113.5"})
+def test_cf_connecting_ip_ignorado_fora_do_tunel(
+    publicador_falso: Any, limitador_falso: Any
+) -> None:
+    chaves = _post_com_cabecalhos(limitador_falso, frozenset(), {"CF-Connecting-IP": "203.0.113.5"})
 
-    assert "rl:ip:{testclient}" in chaves
-    assert all("203.0.113.5" not in chave for chave in chaves)
+    assert ("ip", "testclient") in chaves
+    assert all("203.0.113.5" not in chave for _, chave in chaves)
 
 
-def test_cf_connecting_ip_invalido_usa_o_ip_da_conexao(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_cf_connecting_ip_invalido_usa_o_ip_da_conexao(
+    publicador_falso: Any, limitador_falso: Any
+) -> None:
     chaves = _post_com_cabecalhos(
-        monkeypatch, frozenset({"testclient"}), {"CF-Connecting-IP": "nao-e-ip"}
+        limitador_falso, frozenset({"testclient"}), {"CF-Connecting-IP": "nao-e-ip"}
     )
 
-    assert "rl:ip:{testclient}" in chaves
+    assert ("ip", "testclient") in chaves
 
 
 def _pedido(

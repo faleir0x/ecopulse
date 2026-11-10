@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from ecopulse_api import leitura, main
-from ecopulse_common import geohash, messaging
+from ecopulse_common import geohash
 from ecopulse_common.events import (
     Envelope,
     EventType,
@@ -22,23 +22,10 @@ LATITUDE = -23.5505
 LONGITUDE = -46.6333
 
 
-class RedisLiberado:
-    async def eval(self, *_: Any) -> list[Any]:
-        return [1, "0"]
-
-
-@pytest.fixture
-def publicados(monkeypatch: pytest.MonkeyPatch) -> list[Envelope]:
-    enviados: list[Envelope] = []
-
-    async def fake_publish(exchange: Any, envelope: Envelope, **_: Any) -> None:
-        enviados.append(envelope)
-
-    monkeypatch.setattr(messaging, "publish", fake_publish)
-    main.app.state.broker = MagicMock()
+@pytest.fixture(autouse=True)
+def _pool_falso() -> None:
+    """O endpoint avalia _pool(request) antes de chamar a leitura mockada."""
     main.app.state.pool = MagicMock()
-    main.app.state.redis = RedisLiberado()
-    return enviados
 
 
 def _ocorrencia(status: StatusOcorrencia = StatusOcorrencia.ATIVA) -> OcorrenciaPayload:

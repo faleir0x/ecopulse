@@ -1,7 +1,6 @@
 import asyncio
 from collections.abc import AsyncIterator
 from typing import Any
-from unittest.mock import MagicMock
 from uuid import uuid4
 
 import pytest
@@ -10,7 +9,6 @@ from redis.asyncio.cluster import RedisCluster
 from redis.exceptions import ConnectionError as RedisConnectionError
 
 from ecopulse_api import limite, main
-from ecopulse_common import messaging
 from ecopulse_common.cache import create_cluster
 from ecopulse_common.config import Settings
 
@@ -49,20 +47,13 @@ async def test_esgotado_arredonda_retry_after_para_cima() -> None:
     assert resultado == limite.Resultado(permitido=False, retry_after_s=13)
 
 
-def test_endpoint_responde_429_sem_publicar(monkeypatch: pytest.MonkeyPatch) -> None:
-    publicados: list[Any] = []
-
-    async def fake_publish(*args: Any, **_: Any) -> None:
-        publicados.append(args)
-
-    monkeypatch.setattr(messaging, "publish", fake_publish)
-    main.app.state.broker = MagicMock()
-    main.app.state.redis = RedisEsgotado()
+def test_endpoint_responde_429_sem_publicar(publicador_falso: Any, limitador_falso: Any) -> None:
+    limitador_falso.negar("relato", 13)
     resposta = TestClient(main.app).post("/v1/relatos", json=_relato())
 
     assert resposta.status_code == 429
     assert resposta.headers["retry-after"] == "13"
-    assert publicados == []
+    assert publicador_falso.envelopes == []
 
 
 def test_chave_usa_hash_tag() -> None:

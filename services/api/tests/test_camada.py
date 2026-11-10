@@ -5,11 +5,13 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
-from ecopulse_api import leitura, limite, main
+from ecopulse_api import leitura, main
 from ecopulse_api.schemas import CelulaAmbiente
 
 
-def test_camada_informa_celulas_pendentes(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_camada_informa_celulas_pendentes(
+    monkeypatch: pytest.MonkeyPatch, limitador_falso: Any
+) -> None:
     def celulas(*_: Any, **__: Any) -> list[str]:
         return ["eycs2", "eycs3"]
 
@@ -30,13 +32,9 @@ def test_camada_informa_celulas_pendentes(monkeypatch: pytest.MonkeyPatch) -> No
     async def interesse(*_: Any, **__: Any) -> bool:
         return True
 
-    async def limite_liberado(*_: Any, **__: Any) -> limite.Resultado:
-        return limite.Resultado(permitido=True, retry_after_s=0)
-
     monkeypatch.setattr(leitura, "celulas_amostradas_do_bbox", celulas)
     monkeypatch.setattr(leitura, "leituras_das_celulas", leituras)
     monkeypatch.setattr("ecopulse_api.main.registrar_interesse", interesse)
-    monkeypatch.setattr(limite, "consumir_ambiente", limite_liberado)
     main.app.state.pool = MagicMock()
     main.app.state.redis = MagicMock()
 

@@ -35,15 +35,9 @@ POOL_FALSO = cast(asyncpg.Pool, object())
 
 
 class RedisFalso:
-    def __init__(self, rotas_liberadas: bool = True) -> None:
+    def __init__(self) -> None:
         self.dados: dict[str, str] = {}
         self.ttls: dict[str, int] = {}
-        self.rotas_liberadas = rotas_liberadas
-        self.baldes: list[str] = []
-
-    async def eval(self, _script: Any, _numkeys: Any, chave: str, *_: Any) -> list[Any]:
-        self.baldes.append(chave)
-        return [1, "0"] if self.rotas_liberadas else [0, "12.5"]
 
     async def get(self, chave: str) -> str | None:
         return self.dados.get(chave)
@@ -317,7 +311,7 @@ def _preparar_app() -> None:
     main.app.state.redis = cast(RedisCluster, RedisFalso())
 
 
-def test_endpoint_sem_chave_retorna_503() -> None:
+def test_endpoint_sem_chave_retorna_503(limitador_falso: Any) -> None:
     _preparar_app()
     main.app.dependency_overrides[rotas.obter_settings] = lambda: Settings(ors_api_key="")
     try:
@@ -339,7 +333,7 @@ def test_endpoint_sem_chave_retorna_503() -> None:
         ("0,0", "0,1"),
     ],
 )
-def test_endpoint_validacao_retorna_422(origem: str, destino: str) -> None:
+def test_endpoint_validacao_retorna_422(origem: str, destino: str, limitador_falso: Any) -> None:
     _preparar_app()
     main.app.dependency_overrides[rotas.obter_settings] = lambda: Settings(ors_api_key=CHAVE)
     try:
@@ -357,7 +351,7 @@ class ClienteOrsQuebrado:
 
 
 def test_endpoint_ors_500_retorna_503_com_retry_after(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, limitador_falso: Any
 ) -> None:
     _sem_banco(monkeypatch, [_ocorrencia(1, Severidade.ALTO, 0.0, 0.01)])
     _preparar_app()
@@ -375,15 +369,16 @@ def test_endpoint_ors_500_retorna_503_com_retry_after(
     assert resposta.headers["Retry-After"] == "30"
 
 
-def test_endpoint_rota_respeita_balde_do_ip(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_endpoint_rota_respeita_balde_do_ip(
+    monkeypatch: pytest.MonkeyPatch, limitador_falso: Any
+) -> None:
     chamadas: list[Any] = []
 
     async def fake_rota_segura(*args: Any, **_: Any) -> None:
         chamadas.append(args)
 
     monkeypatch.setattr(rotas, "rota_segura", fake_rota_segura)
-    redis = RedisFalso(rotas_liberadas=False)
-    main.app.state.redis = cast(RedisCluster, redis)
+    limitador_falso.negar("rota", 13)
     main.app.state.pool = MagicMock()
     main.app.dependency_overrides[rotas.obter_settings] = lambda: Settings(ors_api_key="teste")
     try:
@@ -395,5 +390,5 @@ def test_endpoint_rota_respeita_balde_do_ip(monkeypatch: pytest.MonkeyPatch) -> 
 
     assert resposta.status_code == 429
     assert resposta.headers["retry-after"] == "13"
-    assert redis.baldes == ["rl:rota:{testclient}"]
+    assert limitador_falso.chamadas == [("rota", "testclient")]
     assert chamadas == []

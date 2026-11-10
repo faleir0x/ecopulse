@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from ecopulse_api import leitura, main
-from ecopulse_common import geohash, messaging
+from ecopulse_common import geohash
 from ecopulse_common.events import (
     OcorrenciaPayload,
     Severidade,
@@ -17,30 +17,6 @@ from ecopulse_common.events import (
 
 LATITUDE = -23.5505
 LONGITUDE = -46.6333
-
-
-class RedisSoVotoEsgotado:
-    """O balde do aparelho e o do IP liberam; o de votos nega (mede também a chave usada)."""
-
-    def __init__(self) -> None:
-        self.chaves: list[str] = []
-
-    async def eval(self, _script: Any, _numkeys: Any, chave: str, *_: Any) -> list[Any]:
-        self.chaves.append(chave)
-        if chave.startswith("rl:voto:"):
-            return [0, "29.2"]
-        return [1, "0"]
-
-
-class RedisSoAmbienteEsgotado:
-    def __init__(self) -> None:
-        self.chaves: list[str] = []
-
-    async def eval(self, _script: Any, _numkeys: Any, chave: str, *_: Any) -> list[Any]:
-        self.chaves.append(chave)
-        if chave.startswith("rl:ambiente:"):
-            return [0, "1.2"]
-        return [1, "0"]
 
 
 def _ocorrencia() -> OcorrenciaPayload:
@@ -72,36 +48,30 @@ def _voto() -> dict[str, str]:
     "caminho",
     ["/v1/ocorrencias/1/confirmacoes", "/v1/ocorrencias/1/resolucoes"],
 )
-def test_voto_alem_do_balde_responde_429(monkeypatch: pytest.MonkeyPatch, caminho: str) -> None:
-    publicados: list[Any] = []
-
+def test_voto_alem_do_balde_responde_429(
+    monkeypatch: pytest.MonkeyPatch,
+    caminho: str,
+    publicador_falso: Any,
+    limitador_falso: Any,
+) -> None:
     async def fake_buscar(_: Any, __: int) -> OcorrenciaPayload:
         return _ocorrencia()
 
-    async def fake_publish(*args: Any, **_: Any) -> None:
-        publicados.append(args)
-
     monkeypatch.setattr(leitura, "buscar_ocorrencia", fake_buscar)
-    monkeypatch.setattr(messaging, "publish", fake_publish)
-    redis = RedisSoVotoEsgotado()
-    main.app.state.broker = MagicMock()
+    limitador_falso.negar("voto", 30)
     main.app.state.pool = MagicMock()
-    main.app.state.redis = redis
-    main.app.state.proxies = frozenset()
 
     resposta = TestClient(main.app).post(caminho, json=_voto())
 
     assert resposta.status_code == 429
     assert resposta.headers["retry-after"] == "30"
     assert resposta.json() == {"detail": "muitos votos deste IP"}
-    assert publicados == []
-    assert "rl:voto:{testclient}" in redis.chaves
+    assert publicador_falso.envelopes == []
+    assert ("voto", "testclient") in limitador_falso.chamadas
 
 
-def test_camada_alem_do_balde_de_ambiente_responde_429() -> None:
-    redis = RedisSoAmbienteEsgotado()
-    main.app.state.redis = redis
-    main.app.state.proxies = frozenset()
+def test_camada_alem_do_balde_de_ambiente_responde_429(limitador_falso: Any) -> None:
+    limitador_falso.negar("ambiente", 2)
 
     resposta = TestClient(main.app).get(
         "/v1/ambiente/camada", params={"bbox": "-46.7,-23.6,-46.5,-23.5"}
@@ -110,4 +80,4 @@ def test_camada_alem_do_balde_de_ambiente_responde_429() -> None:
     assert resposta.status_code == 429
     assert resposta.headers["retry-after"] == "2"
     assert resposta.json() == {"detail": "muitas consultas de ambiente deste IP"}
-    assert redis.chaves == ["rl:ambiente:{testclient}"]
+    assert limitador_falso.chamadas == [("ambiente", "testclient")]

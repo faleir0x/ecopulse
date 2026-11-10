@@ -118,6 +118,65 @@ def test_bbox_de_um_ponto_retorna_uma_celula() -> None:
     assert celulas == [geohash.encode(LATITUDE, LONGITUDE, geohash.PARTITION_PRECISION)]
 
 
+def test_amostragem_devolve_a_grade_completa_quando_cabe() -> None:
+    celula = geohash.encode(LATITUDE, LONGITUDE, geohash.PARTITION_PRECISION)
+    norte, nordeste, leste = geohash.neighbors(celula)[:3]
+    caixas = [geohash.decode_bbox(item) for item in (celula, norte, nordeste, leste)]
+    bbox = (
+        min(caixa[1] for caixa in caixas),
+        min(caixa[0] for caixa in caixas),
+        max(caixa[3] for caixa in caixas),
+        max(caixa[2] for caixa in caixas),
+    )
+
+    assert leitura.celulas_amostradas_do_bbox(*bbox) == leitura.celulas_do_bbox(*bbox)
+
+
+def test_amostragem_limita_e_espalha_pelo_bbox_grande() -> None:
+    # Estado de São Paulo inteiro: milhares de células na grade completa.
+    min_lon, min_lat, max_lon, max_lat = -53.2, -25.4, -44.1, -19.7
+
+    celulas = leitura.celulas_amostradas_do_bbox(min_lon, min_lat, max_lon, max_lat)
+
+    assert 0 < len(celulas) <= leitura.MAX_CELULAS
+    assert len(celulas) == len(set(celulas))
+
+    meio_lon = (min_lon + max_lon) / 2
+    meio_lat = (min_lat + max_lat) / 2
+    quadrantes = {
+        (lat >= meio_lat, lon >= meio_lon) for lat, lon in (_centro(celula) for celula in celulas)
+    }
+    assert quadrantes == {(False, False), (False, True), (True, False), (True, True)}
+
+
+def test_amostragem_respeita_maximo_informado() -> None:
+    celulas = leitura.celulas_amostradas_do_bbox(-53.2, -25.4, -44.1, -19.7, maximo=10)
+
+    assert 0 < len(celulas) <= 10
+
+
+@pytest.mark.parametrize(
+    ("min_lon", "min_lat", "max_lon", "max_lat"),
+    [
+        (-9.0, 38.0, -9.1, 38.1),  # min_lon > max_lon (antimeridiano)
+        (-9.1, 38.1, -9.0, 38.0),  # min_lat > max_lat
+        (170.0, -1.0, -170.0, 1.0),  # min_lon > max_lon
+        (-181.0, 0.0, 0.0, 1.0),  # longitude fora do intervalo
+        (0.0, -91.0, 1.0, 0.0),  # latitude fora do intervalo
+    ],
+)
+def test_amostragem_valida_bbox(
+    min_lon: float, min_lat: float, max_lon: float, max_lat: float
+) -> None:
+    with pytest.raises(ValueError):
+        leitura.celulas_amostradas_do_bbox(min_lon, min_lat, max_lon, max_lat)
+
+
+def test_amostragem_exige_maximo_positivo() -> None:
+    with pytest.raises(ValueError):
+        leitura.celulas_amostradas_do_bbox(LONGITUDE, LATITUDE, LONGITUDE, LATITUDE, maximo=0)
+
+
 @pytest.mark.parametrize(
     ("min_lon", "min_lat", "max_lon", "max_lat"),
     [

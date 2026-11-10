@@ -117,6 +117,35 @@ function corDaTabela(
   return tabela[limitar(indice, 0, tabela.length - 1)]!;
 }
 
+const TOLERANCIA_GRADE = 1e-9;
+const CELULAS_MAXIMAS_SEM_REDUZIR = 4096;
+
+function arredondarCoordenada(valor: number): number {
+  return Math.round(valor / TOLERANCIA_GRADE) * TOLERANCIA_GRADE;
+}
+
+/**
+ * Menor diferença positiva entre os valores distintos (arredondados a 1e-9). Com amostra
+ * regular de células a cada k, é o passo k × largura da célula; null quando só há um valor.
+ */
+function passoDaGrade(valores: number[]): number | null {
+  const distintos = [...new Set(valores.map(arredondarCoordenada))].sort((a, b) => a - b);
+  let passo = Infinity;
+  for (let indice = 1; indice < distintos.length; indice += 1) {
+    const diferenca = arredondarCoordenada(distintos[indice]! - distintos[indice - 1]!);
+    if (diferenca > 0) passo = Math.min(passo, diferenca);
+  }
+  return Number.isFinite(passo) ? passo : null;
+}
+
+function centroLat(celula: CelulaAmbiente): number {
+  return (celula.lat_min + celula.lat_max) / 2;
+}
+
+function centroLon(celula: CelulaAmbiente): number {
+  return (celula.lon_min + celula.lon_max) / 2;
+}
+
 /** Monta a superfície das células com leitura; null quando nenhuma tem valor na camada. */
 export function montarSuperficie(
   celulas: CelulaAmbiente[],
@@ -132,29 +161,44 @@ export function montarSuperficie(
   const primeira = comValor[0];
   if (!primeira) return null;
 
-  const dLat = primeira.celula.lat_max - primeira.celula.lat_min;
-  const dLon = primeira.celula.lon_max - primeira.celula.lon_min;
-  if (!(dLat > 0) || !(dLon > 0)) return null;
+  const dLatCelula = primeira.celula.lat_max - primeira.celula.lat_min;
+  const dLonCelula = primeira.celula.lon_max - primeira.celula.lon_min;
+  if (!(dLatCelula > 0) || !(dLonCelula > 0)) return null;
 
   let latMin = Infinity;
   let latMax = -Infinity;
   let lonMin = Infinity;
   let lonMax = -Infinity;
+  let centroLatMin = Infinity;
+  let centroLatMax = -Infinity;
+  let centroLonMin = Infinity;
+  let centroLonMax = -Infinity;
   for (const { celula } of comValor) {
     latMin = Math.min(latMin, celula.lat_min);
     latMax = Math.max(latMax, celula.lat_max);
     lonMin = Math.min(lonMin, celula.lon_min);
     lonMax = Math.max(lonMax, celula.lon_max);
+    const lat = centroLat(celula);
+    const lon = centroLon(celula);
+    centroLatMin = Math.min(centroLatMin, lat);
+    centroLatMax = Math.max(centroLatMax, lat);
+    centroLonMin = Math.min(centroLonMin, lon);
+    centroLonMax = Math.max(centroLonMax, lon);
   }
 
-  const colunas = Math.round((lonMax - lonMin) / dLon);
-  const linhas = Math.round((latMax - latMin) / dLat);
+  // O passo vem dos centros das células com valor: uma amostra regular a cada k células vira
+  // uma grade contínua, sem os buracos que existiriam usando o tamanho de uma única célula.
+  const dLat = passoDaGrade(comValor.map(({ celula }) => celula.lat_min)) ?? dLatCelula;
+  const dLon = passoDaGrade(comValor.map(({ celula }) => celula.lon_min)) ?? dLonCelula;
+
+  const colunas = Math.round((centroLonMax - centroLonMin) / dLon) + 1;
+  const linhas = Math.round((centroLatMax - centroLatMin) / dLat) + 1;
   if (colunas < 1 || linhas < 1) return null;
 
   const grade: (number | undefined)[] = new Array(colunas * linhas);
   for (const { celula, valor } of comValor) {
-    const col = Math.round((celula.lon_min - lonMin) / dLon);
-    const lin = Math.round((latMax - celula.lat_max) / dLat);
+    const col = Math.round((centroLon(celula) - centroLonMin) / dLon);
+    const lin = Math.round((centroLatMax - centroLat(celula)) / dLat);
     if (col < 0 || col >= colunas || lin < 0 || lin >= linhas) continue;
     grade[lin * colunas + col] = valor;
   }
@@ -174,19 +218,30 @@ export function montarSuperficie(
     tabela.push(hexParaRgb(corDoValor(valorTabela, camada, escala, sev)));
   }
 
-  const larguraPx = colunas * PIXELS_POR_CELULA;
-  const alturaPx = linhas * PIXELS_POR_CELULA;
+  const totalCelulas = colunas * linhas;
+  const pixelsPorCelula =
+    totalCelulas > CELULAS_MAXIMAS_SEM_REDUZIR
+      ? Math.max(
+          2,
+          Math.floor(
+            PIXELS_POR_CELULA * Math.sqrt(CELULAS_MAXIMAS_SEM_REDUZIR / totalCelulas),
+          ),
+        )
+      : PIXELS_POR_CELULA;
+
+  const larguraPx = colunas * pixelsPorCelula;
+  const alturaPx = linhas * pixelsPorCelula;
   const rgba = new Uint8Array(larguraPx * alturaPx * 4);
   const alfa = Math.round(OPACIDADE_SUPERFICIE * 255);
 
   for (let py = 0; py < alturaPx; py += 1) {
-    const gy = limitar((py + 0.5) / PIXELS_POR_CELULA - 0.5, 0, linhas - 1);
+    const gy = limitar((py + 0.5) / pixelsPorCelula - 0.5, 0, linhas - 1);
     const j0 = Math.floor(gy);
     const j1 = Math.min(j0 + 1, linhas - 1);
     const fy = gy - j0;
 
     for (let px = 0; px < larguraPx; px += 1) {
-      const gx = limitar((px + 0.5) / PIXELS_POR_CELULA - 0.5, 0, colunas - 1);
+      const gx = limitar((px + 0.5) / pixelsPorCelula - 0.5, 0, colunas - 1);
       const i0 = Math.floor(gx);
       const i1 = Math.min(i0 + 1, colunas - 1);
       const fx = gx - i0;

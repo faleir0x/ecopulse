@@ -291,9 +291,10 @@ async def ler_camada(
     request: Request,
     bbox: Annotated[str, Query(description="min_lon,min_lat,max_lon,max_lat")],
 ) -> list[CelulaAmbiente]:
-    """Última leitura de cada célula geohash5 do retângulo visível do mapa. Registra interesse
-    em todas as células (o environment coleta as que faltam em até 30 s) e devolve só as que
-    já têm leitura."""
+    """Última leitura das células geohash5 do retângulo visível do mapa. Em áreas grandes a
+    amostra vira uma grade regular de até MAX_CELULAS (a superfície do app interpola entre os
+    centros). Registra interesse em todas as células amostradas (o environment coleta as que
+    faltam em até 30 s) e devolve só as que já têm leitura."""
     ip = _ip_cliente(request)
     _exigir_limite(
         await limite.consumir_ambiente(_redis(request), ip),
@@ -302,10 +303,9 @@ async def ler_camada(
     )
     try:
         min_lon, min_lat, max_lon, max_lat = (float(valor) for valor in bbox.split(","))
-        celulas = leitura.celulas_do_bbox(min_lon, min_lat, max_lon, max_lat)
+        celulas = leitura.celulas_amostradas_do_bbox(min_lon, min_lat, max_lon, max_lat)
     except ValueError as exc:
-        detalhe = "aproxime o mapa" if "acima do máximo" in str(exc) else f"bbox inválido: {exc}"
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, detalhe) from exc
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"bbox inválido: {exc}") from exc
 
     agora = time.time()
     for celula in celulas:

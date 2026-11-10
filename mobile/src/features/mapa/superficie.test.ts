@@ -172,12 +172,41 @@ describe('montarSuperficie', () => {
     expect(alfa).toBe(Math.round(0.45 * 255));
   });
 
-  it('deixa transparentes as posições sem vizinhas numa grade esparsa', () => {
+  it('fecha a grade de uma amostra regular a cada 3 células', () => {
+    const celulas: CelulaAmbiente[] = [];
+    const valores = [20, 21, 22, 23, 24, 25, 26, 27, 28];
+    let indice = 0;
+    for (const latMin of [0.24, 0.12, 0]) {
+      for (const lonMin of [0, 0.12, 0.24]) {
+        celulas.push(celula(latMin, lonMin, valores[indice]!));
+        indice += 1;
+      }
+    }
+
+    const superficie = montarSuperficie(celulas, 'calor', SEV);
+
+    expect(superficie).not.toBeNull();
+    expect(superficie!.limites[0][0]).toBeCloseTo(0.28);
+    expect(superficie!.limites[0][1]).toBeCloseTo(0.28);
+    expect(superficie!.limites[1]).toEqual([0, 0]);
+
+    const png = decodificarPng(superficie!.uri);
+    expect(png.largura).toBe(3 * PIXELS_POR_CELULA);
+    expect(png.altura).toBe(3 * PIXELS_POR_CELULA);
+
+    const alfas = new Set<number>();
+    for (let posicao = 3; posicao < png.pixels.length; posicao += 4) {
+      alfas.add(png.pixels[posicao]!);
+    }
+    expect([...alfas]).toEqual([Math.round(0.45 * 255)]);
+  });
+
+  it('fecha a grade entre amostras regulares espaçadas', () => {
     const celulas = [celula(0, 0, 20), celula(0, 0.12, 23)];
 
     const superficie = montarSuperficie(celulas, 'calor', SEV);
     const png = decodificarPng(superficie!.uri);
 
-    expect(pixel(png, 18, 0)).toEqual([0, 0, 0, 0]);
+    expect(pixel(png, 18, 0)[3]).toBe(Math.round(0.45 * 255));
   });
 });

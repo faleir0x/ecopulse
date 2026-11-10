@@ -125,9 +125,18 @@ async def test_camada_sem_leitura_devolve_lista_vazia_mas_registra_interesse(
         await _limpar(pool, redis, [CELULA_SEM_LEITURA])
 
 
-async def test_camada_bbox_grande_pede_aproximar(cliente: TestClient, redis: RedisCluster) -> None:
-    del redis
-    resposta = cliente.get("/v1/ambiente/camada", params={"bbox": "-180,-90,180,90"})
+async def test_camada_bbox_grande_amostra_em_vez_de_pedir_aproximar(
+    cliente: TestClient, redis: RedisCluster
+) -> None:
+    bbox = (-180.0, -90.0, 180.0, 90.0)
+    celulas = leitura.celulas_amostradas_do_bbox(*bbox)
+    try:
+        resposta = cliente.get("/v1/ambiente/camada", params={"bbox": "-180,-90,180,90"})
 
-    assert resposta.status_code == 400
-    assert resposta.json() == {"detail": "aproxime o mapa"}
+        assert resposta.status_code == 200
+        assert isinstance(resposta.json(), list)
+        # O interesse é registrado só nas células amostradas, não nas milhares da grade cheia.
+        for celula in celulas:
+            assert await redis.zscore(ambiente.CHAVE_INTERESSE, celula) is not None
+    finally:
+        await redis.zrem(ambiente.CHAVE_INTERESSE, *celulas)

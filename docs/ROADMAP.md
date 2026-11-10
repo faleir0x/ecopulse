@@ -83,5 +83,5 @@ Auditoria do código (correção, segurança, arquitetura e app) e lacunas do te
 - [x] **7.3** App: localização num módulo único; alertas sem duplicar; push abre a ocorrência com o app fechado; WebSocket morto detectado
 - [x] **7.4** Ordem dos eventos por `versao`; zona de influência única (servidor e app, com teste de contrato); teste e2e relato → alerta no CI; testes de integração não passam mais em silêncio
 - [x] **7.5** Lacunas da proposta: inversão térmica (Open-Meteo em níveis de pressão), celular como nó sensor (telemetria de presença por célula), PostgreSQL com réplica e failover manual (`infra/demo/falha-postgres.sh`)
-- [ ] **7.6** Contrato da API gerado para o app (tipos TypeScript a partir do OpenAPI)
-- [ ] **7.7** Mapa de calor que some fora de Ribeirão Preto / ao afastar o zoom (investigar no celular)
+- [x] **7.6** Contrato da API gerado para o app (tipos TypeScript a partir do OpenAPI)
+- [x] **7.7** Mapa de calor que sumia ao afastar o zoom: amostra regular de até 64 células na área visível e superfície contínua sobre a amostra

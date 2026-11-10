@@ -36,13 +36,13 @@ def chave_celula(geohash5: str) -> str:
     return f"cell:{{{geohash5}}}:ocorrencias"
 
 
-def celulas_do_bbox(min_lon: float, min_lat: float, max_lon: float, max_lat: float) -> list[str]:
-    """Células geohash precisão PARTITION_PRECISION (5) que cobrem o bbox, sem repetição.
+def _faixa_de_celulas(
+    min_lon: float, min_lat: float, max_lon: float, max_lat: float
+) -> tuple[int, int, int, int, float, float]:
+    """Valida o bbox e devolve (i0, i1, j0, j1, largura, altura) da grade geohash5.
 
-    Percorre uma grade com passo menor que a célula (use geohash.decode_bbox de uma célula
-    para obter largura/altura) incluindo as bordas. ValueError se min > max, coordenadas fora
-    do intervalo, ou se precisar de mais de MAX_CELULAS (o app deve aproximar o zoom).
-    Bbox que cruza o antimeridiano não é suportado (ValueError).
+    ValueError se as coordenadas não forem finitas ou estiverem fora do intervalo, se min > max,
+    ou se o bbox cruzar o antimeridiano (não suportado).
     """
     coordenadas = (min_lon, min_lat, max_lon, max_lat)
     if not all(math.isfinite(valor) for valor in coordenadas):
@@ -78,16 +78,91 @@ def celulas_do_bbox(min_lon: float, min_lat: float, max_lon: float, max_lat: flo
     i1 = min(max(i1, 0), total_lon - 1)
     j0 = min(max(j0, 0), total_lat - 1)
     j1 = min(max(j1, 0), total_lat - 1)
+    return i0, i1, j0, j1, largura, altura
+
+
+def _celulas_da_faixa(
+    i0: int, i1: int, j0: int, j1: int, largura: float, altura: float
+) -> list[str]:
+    """Geohash5 dos centros de todas as células da faixa, linha a linha, sem repetição."""
+    celulas: list[str] = []
+    for j in range(j0, j1 + 1):
+        lat = -90.0 + (j + 0.5) * altura
+        for i in range(i0, i1 + 1):
+            lon = -180.0 + (i + 0.5) * largura
+            celulas.append(geohash.encode(lat, lon, geohash.PARTITION_PRECISION))
+    return celulas
+
+
+def celulas_do_bbox(min_lon: float, min_lat: float, max_lon: float, max_lat: float) -> list[str]:
+    """Células geohash precisão PARTITION_PRECISION (5) que cobrem o bbox, sem repetição.
+
+    Percorre uma grade com passo menor que a célula (use geohash.decode_bbox de uma célula
+    para obter largura/altura) incluindo as bordas. ValueError se min > max, coordenadas fora
+    do intervalo, ou se precisar de mais de MAX_CELULAS (o app deve aproximar o zoom).
+    Bbox que cruza o antimeridiano não é suportado (ValueError).
+    """
+    i0, i1, j0, j1, largura, altura = _faixa_de_celulas(min_lon, min_lat, max_lon, max_lat)
 
     n_lon = i1 - i0 + 1
     n_lat = j1 - j0 + 1
     if n_lon * n_lat > MAX_CELULAS:
         raise ValueError(f"bbox cobre {n_lon * n_lat} células, acima do máximo de {MAX_CELULAS}")
 
+    return _celulas_da_faixa(i0, i1, j0, j1, largura, altura)
+
+
+def _indices_amostrados(inicio: int, fim: int, passo: int) -> range:
+    """Índices de `inicio` a `fim` a cada `passo`, começando no centro do primeiro bloco.
+
+    Se `passo // 2` passar do fim (faixa mais estreita que o passo), usa o índice central da
+    faixa para garantir ao menos uma célula naquela direção.
+    """
+    deslocamento = passo // 2
+    if inicio + deslocamento > fim:
+        deslocamento = (fim - inicio) // 2
+    return range(inicio + deslocamento, fim + 1, passo)
+
+
+def celulas_amostradas_do_bbox(
+    min_lon: float,
+    min_lat: float,
+    max_lon: float,
+    max_lat: float,
+    maximo: int = MAX_CELULAS,
+) -> list[str]:
+    """Até `maximo` células geohash5 amostradas numa grade regular sobre o bbox.
+
+    A camada ambiental não pode pedir uma célula por ponto visível: a Open-Meteo tem cota de
+    chamadas e o app interpola a superfície entre os centros recebidos. Quando a área passa de
+    `maximo` células, percorre a mesma grade de `celulas_do_bbox` com passo inteiro
+    k = ceil(sqrt(n_lon * n_lat / maximo)), começando em k // 2 para centralizar a amostra, e
+    aumenta k até a amostra caber. Sem passar do máximo devolve exatamente a grade completa
+    (igual a `celulas_do_bbox`). Sem repetição, ordem estável. ValueError nas mesmas condições
+    de `celulas_do_bbox` e se `maximo` não for positivo.
+    """
+    if maximo < 1:
+        raise ValueError("máximo de células deve ser positivo")
+
+    i0, i1, j0, j1, largura, altura = _faixa_de_celulas(min_lon, min_lat, max_lon, max_lat)
+    n_lon = i1 - i0 + 1
+    n_lat = j1 - j0 + 1
+
+    if n_lon * n_lat <= maximo:
+        return _celulas_da_faixa(i0, i1, j0, j1, largura, altura)
+
+    passo = math.ceil(math.sqrt(n_lon * n_lat / maximo))
+    while True:
+        indices_lon = _indices_amostrados(i0, i1, passo)
+        indices_lat = _indices_amostrados(j0, j1, passo)
+        if len(indices_lon) * len(indices_lat) <= maximo:
+            break
+        passo += 1
+
     celulas: list[str] = []
-    for j in range(j0, j1 + 1):
+    for j in indices_lat:
         lat = -90.0 + (j + 0.5) * altura
-        for i in range(i0, i1 + 1):
+        for i in indices_lon:
             lon = -180.0 + (i + 0.5) * largura
             celulas.append(geohash.encode(lat, lon, geohash.PARTITION_PRECISION))
     return celulas

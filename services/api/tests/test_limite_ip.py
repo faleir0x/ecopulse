@@ -12,6 +12,7 @@ from redis.exceptions import ConnectionError as RedisConnectionError
 from ecopulse_api import limite, main
 from ecopulse_common.cache import create_cluster
 from ecopulse_common.config import Settings
+from ecopulse_common.rede import Rede, redes_confiaveis
 
 
 class RedisFora:
@@ -124,15 +125,20 @@ async def test_endpoint_respeita_balde_do_ip(cliente: TestClient, redis: RedisCl
         await redis.delete(chave, chave_aparelho)
 
 
+PROXY = "10.89.70.250"
+
+
 def _post_com_cabecalhos(
-    limitador: Any, proxies: frozenset[str], cabecalhos: dict[str, str]
+    limitador: Any, proxies: tuple[Rede, ...], cabecalhos: dict[str, str]
 ) -> list[tuple[str, str]]:
-    """Faz um POST de relato e devolve os baldes consultados."""
+    """Faz um POST de relato vindo do IP do proxy e devolve os baldes consultados."""
     main.app.state.proxies = proxies
     try:
-        TestClient(main.app).post("/v1/relatos", json=_relato(), headers=cabecalhos)
+        TestClient(main.app, client=(PROXY, 50000)).post(
+            "/v1/relatos", json=_relato(), headers=cabecalhos
+        )
     finally:
-        main.app.state.proxies = frozenset()
+        main.app.state.proxies = ()
     chamadas: list[tuple[str, str]] = limitador.chamadas
     return chamadas
 
@@ -141,18 +147,28 @@ def test_cf_connecting_ip_vale_quando_vem_do_tunel(
     publicador_falso: Any, limitador_falso: Any
 ) -> None:
     chaves = _post_com_cabecalhos(
-        limitador_falso, frozenset({"testclient"}), {"CF-Connecting-IP": "203.0.113.5"}
+        limitador_falso, redes_confiaveis(PROXY), {"CF-Connecting-IP": "203.0.113.5"}
     )
 
     assert ("ip", "203.0.113.5") in chaves
 
 
+def test_x_real_ip_do_nginx_proxy_manager_numa_faixa(
+    publicador_falso: Any, limitador_falso: Any
+) -> None:
+    chaves = _post_com_cabecalhos(
+        limitador_falso, redes_confiaveis("10.89.70.0/24"), {"X-Real-IP": "203.0.113.9"}
+    )
+
+    assert ("ip", "203.0.113.9") in chaves
+
+
 def test_cf_connecting_ip_ignorado_fora_do_tunel(
     publicador_falso: Any, limitador_falso: Any
 ) -> None:
-    chaves = _post_com_cabecalhos(limitador_falso, frozenset(), {"CF-Connecting-IP": "203.0.113.5"})
+    chaves = _post_com_cabecalhos(limitador_falso, (), {"CF-Connecting-IP": "203.0.113.5"})
 
-    assert ("ip", "testclient") in chaves
+    assert ("ip", PROXY) in chaves
     assert all("203.0.113.5" not in chave for _, chave in chaves)
 
 
@@ -160,16 +176,16 @@ def test_cf_connecting_ip_invalido_usa_o_ip_da_conexao(
     publicador_falso: Any, limitador_falso: Any
 ) -> None:
     chaves = _post_com_cabecalhos(
-        limitador_falso, frozenset({"testclient"}), {"CF-Connecting-IP": "nao-e-ip"}
+        limitador_falso, redes_confiaveis(PROXY), {"CF-Connecting-IP": "nao-e-ip"}
     )
 
-    assert ("ip", "testclient") in chaves
+    assert ("ip", PROXY) in chaves
 
 
 def _pedido(
     host: str,
     *,
-    proxies: frozenset[str] = frozenset(),
+    proxies: tuple[Rede, ...] = (),
     cabecalhos: dict[str, str] | None = None,
 ) -> Any:
     """Request falsa o suficiente para _ip_cliente (client, headers e app.state.proxies)."""
@@ -188,8 +204,8 @@ def test_ipv6_direto_vira_rede_64() -> None:
 
 def test_ipv6_do_tunel_vira_rede_64() -> None:
     pedido = _pedido(
-        "testclient",
-        proxies=frozenset({"testclient"}),
+        PROXY,
+        proxies=redes_confiaveis(PROXY),
         cabecalhos={"cf-connecting-ip": "2001:db8:1:2:abcd::99"},
     )
 
@@ -204,8 +220,8 @@ def test_ipv4_direto_fica_inalterado() -> None:
 
 def test_ipv4_do_tunel_fica_inalterado() -> None:
     pedido = _pedido(
-        "testclient",
-        proxies=frozenset({"testclient"}),
+        PROXY,
+        proxies=redes_confiaveis(PROXY),
         cabecalhos={"cf-connecting-ip": "198.51.100.7"},
     )
 

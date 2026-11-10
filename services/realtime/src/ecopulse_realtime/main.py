@@ -21,7 +21,6 @@ WS  /v1/ws  → protocolo.py. Por conexão:
 """
 
 import asyncio
-import ipaddress
 import json
 import logging
 import time
@@ -40,6 +39,7 @@ from ecopulse_common import messaging
 from ecopulse_common.cache import create_cluster
 from ecopulse_common.config import Settings
 from ecopulse_common.logs import configure_logging
+from ecopulse_common.rede import ip_cliente, redes_confiaveis
 from ecopulse_realtime import distribuicao, ponte, protocolo
 
 log = logging.getLogger(__name__)
@@ -87,9 +87,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         parar=parar,
         tarefa=tarefa,
     )
-    app.state.proxies = frozenset(
-        ip.strip() for ip in settings.proxies_confiaveis.split(",") if ip.strip()
-    )
+    app.state.proxies = redes_confiaveis(settings.proxies_confiaveis)
     try:
         yield
     finally:
@@ -111,23 +109,9 @@ def _servico(escopo: Request | WebSocket) -> Servico:
 
 
 def _ip_cliente(websocket: WebSocket) -> str:
-    """IP de origem. CF-Connecting-IP só vale quando a conexão vem de um proxy confiável (o
-    túnel da Cloudflare); de qualquer outro lugar é ignorado, então não dá para forjar o IP.
-    IPv6 vira a rede /64: um cliente troca de endereço dentro do mesmo /64, mas não de rede."""
+    """IP de origem (regra em ecopulse_common.rede: cabeçalho só de proxy confiável, IPv6 → /64)."""
     direto = websocket.client.host if websocket.client is not None else "desconhecido"
-    proxies: frozenset[str] = getattr(websocket.app.state, "proxies", frozenset())
-    candidato = direto
-    if direto in proxies:
-        cabecalho = websocket.headers.get("cf-connecting-ip", "").strip()
-        with suppress(ValueError):
-            candidato = str(ipaddress.ip_address(cabecalho))
-    try:
-        endereco = ipaddress.ip_address(candidato)
-    except ValueError:
-        return candidato
-    if isinstance(endereco, ipaddress.IPv6Address):
-        return str(ipaddress.ip_network(f"{endereco}/64", strict=False))
-    return str(endereco)
+    return ip_cliente(direto, websocket.headers, getattr(websocket.app.state, "proxies", ()))
 
 
 @app.get("/health")

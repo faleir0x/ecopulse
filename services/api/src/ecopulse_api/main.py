@@ -1,9 +1,8 @@
 import hashlib
-import ipaddress
 import logging
 import time
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager, suppress
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Annotated
 from uuid import UUID
@@ -51,6 +50,7 @@ from ecopulse_common.events import (
 )
 from ecopulse_common.logs import configure_logging
 from ecopulse_common.messaging import Topology
+from ecopulse_common.rede import ip_cliente, redes_confiaveis
 from ecopulse_common.telemetria import JANELA_PRESENCA_S, contar_presenca
 
 log = logging.getLogger(__name__)
@@ -76,9 +76,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.broker = Broker(connection, topology)
     app.state.pool = pool
     app.state.redis = redis
-    app.state.proxies = frozenset(
-        ip.strip() for ip in settings.proxies_confiaveis.split(",") if ip.strip()
-    )
+    app.state.proxies = redes_confiaveis(settings.proxies_confiaveis)
     yield
     await connection.close()
     await redis.aclose()
@@ -128,23 +126,9 @@ def _exigir_limite(resultado: limite.Resultado, mensagem: str, contexto: dict[st
 
 
 def _ip_cliente(request: Request) -> str:
-    """IP de origem. CF-Connecting-IP só vale quando a conexão vem de um proxy confiável (o
-    túnel da Cloudflare); de qualquer outro lugar é ignorado, então não dá para forjar o IP.
-    IPv6 vira a rede /64: um cliente troca de endereço dentro do mesmo /64, mas não de rede."""
+    """IP de origem (regra em ecopulse_common.rede: cabeçalho só de proxy confiável, IPv6 → /64)."""
     direto = request.client.host if request.client is not None else "desconhecido"
-    proxies: frozenset[str] = getattr(request.app.state, "proxies", frozenset())
-    candidato = direto
-    if direto in proxies:
-        cabecalho = request.headers.get("cf-connecting-ip", "").strip()
-        with suppress(ValueError):
-            candidato = str(ipaddress.ip_address(cabecalho))
-    try:
-        endereco = ipaddress.ip_address(candidato)
-    except ValueError:
-        return candidato
-    if isinstance(endereco, ipaddress.IPv6Address):
-        return str(ipaddress.ip_network(f"{endereco}/64", strict=False))
-    return str(endereco)
+    return ip_cliente(direto, request.headers, getattr(request.app.state, "proxies", ()))
 
 
 async def _aplicar_limite(request: Request, limitador: Limitador, device_id: UUID) -> None:

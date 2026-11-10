@@ -10,6 +10,7 @@ from fastapi import WebSocket
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
+from ecopulse_common.rede import Rede, redes_confiaveis
 from ecopulse_realtime import distribuicao, main
 
 
@@ -38,7 +39,7 @@ def ambiente(
     conexoes: dict[str, int] = {}
     servico = SimpleNamespace(distribuidor=distribuidor, conexoes_por_ip=conexoes)
     monkeypatch.setattr(main.app.state, "servico", servico, raising=False)
-    monkeypatch.setattr(main.app.state, "proxies", frozenset(), raising=False)
+    monkeypatch.setattr(main.app.state, "proxies", (), raising=False)
     cliente = TestClient(main.app)
     try:
         yield cliente, distribuidor, conexoes
@@ -57,7 +58,9 @@ def test_cf_connecting_ip_so_vale_para_proxy_confiavel() -> None:
 
     assert (
         main._ip_cliente(
-            _websocket_falso("testclient", proxies=frozenset({"testclient"}), cabecalhos=cabecalhos)
+            _websocket_falso(
+                "10.89.70.250", proxies=redes_confiaveis("10.89.70.250"), cabecalhos=cabecalhos
+            )
         )
         == "198.51.100.7"
     )
@@ -144,7 +147,7 @@ def test_inatividade_fecha_a_conexao(
 def _websocket_falso(
     host: str,
     *,
-    proxies: frozenset[str] = frozenset(),
+    proxies: tuple[Rede, ...] = (),
     cabecalhos: dict[str, str] | None = None,
 ) -> Any:
     """WebSocket falsa o suficiente para _ip_cliente (client, headers e app.state.proxies)."""

@@ -9,7 +9,7 @@ import { AndroidImportance } from 'expo-notifications';
 import { router } from 'expo-router';
 import Storage from 'expo-sqlite/kv-store';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 
 import { endpoints } from '@/config/endpoints';
 import { ROTULO_SEVERIDADE, ROTULO_TIPO, type Severidade } from '@/domain/tipos';
@@ -18,6 +18,7 @@ import { avaliarZonas, RAIO_INFLUENCIA_M } from '@/features/alertas/zona';
 import { bboxDoRaio } from '@/features/agora/escalas';
 import { useOcorrencias } from '@/features/ocorrencias';
 import { useLocalizacao } from '@/features/localizacao';
+import { usePushRemoto } from '@/features/push';
 import { celulasNoRaio, decodeBbox, encode } from '@/lib/geohash';
 import { formatarDistancia } from '@/lib/distancia';
 import { ClienteRealtime, type EstadoConexao } from '@/realtime/cliente';
@@ -71,22 +72,36 @@ function silenciadoAte(): number {
   }
 }
 
-function silenciar(): void {
+function silenciar(): number {
+  const ate = Date.now() + SILENCIO_MS;
   try {
-    Storage.setItemSync(CHAVE_SILENCIO, String(Date.now() + SILENCIO_MS));
+    Storage.setItemSync(CHAVE_SILENCIO, String(ate));
   } catch {
     // Sem persistência o silêncio não vale
   }
+  return ate;
 }
 
-// Notificação aparece mesmo com o app aberto (banner + som)
+// Push remoto com o app aberto não repete o alerta local (o WebSocket já avisou)
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
+  handleNotification: async (notification) => {
+    const gatilho = notification.request.trigger;
+    const remota = gatilho != null && 'type' in gatilho && gatilho.type === 'push';
+    if (remota && AppState.currentState === 'active') {
+      return {
+        shouldShowBanner: false,
+        shouldShowList: false,
+        shouldPlaySound: false,
+        shouldSetBadge: false,
+      };
+    }
+    return {
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+    };
+  },
 });
 
 type Contexto = {
@@ -151,6 +166,9 @@ export function AlertasProvider({ children }: { children: ReactNode }) {
 
   const [alertas, setAlertas] = useState<ItemAlerta[]>(lerLista);
   const [conexao, setConexao] = useState<EstadoConexao>('conectando');
+  const [silencioAte, setSilencioAte] = useState(silenciadoAte);
+
+  usePushRemoto({ posicao, raioM, limiar, tiposAtivos, silenciadoAte: silencioAte });
 
   // Valores atuais para o callback do WebSocket sem reconectar a cada mudança
   const contexto = useRef({ posicao, raioM, limiar, tiposAtivos, alertas });
@@ -270,7 +288,7 @@ export function AlertasProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const assinatura = Notifications.addNotificationResponseReceivedListener((resposta) => {
       if (resposta.actionIdentifier === ACAO_SILENCIAR) {
-        silenciar();
+        setSilencioAte(silenciar());
         void Notifications.dismissNotificationAsync(resposta.notification.request.identifier).catch(
           () => undefined,
         );

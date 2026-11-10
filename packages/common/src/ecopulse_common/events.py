@@ -15,6 +15,7 @@ class EventType(StrEnum):
     OCORRENCIA_ATUALIZADA = "ocorrencia.atualizada"
     OCORRENCIA_EXPIRADA = "ocorrencia.expirada"
     LEITURA_AMBIENTE = "leitura.ambiente"
+    TELEMETRIA_APARELHO = "telemetria.aparelho"
 
 
 class TipoRisco(StrEnum):
@@ -85,6 +86,8 @@ class OcorrenciaPayload(BaseModel):
     expira_em: datetime
     resolucoes: int = 0
     encerrada_em: datetime | None = None
+    # Incrementa a cada alteração; consumidores descartam versão menor que a já vista.
+    versao: int = 1
 
 
 class HoraPrevista(BaseModel):
@@ -119,3 +122,19 @@ class LeituraAmbiente(BaseModel):
     umidade: int | None = None  # % relativa a 2 m
     # Poluente que mais pesa no AQI: pm2_5, pm10, ozonio, no2, so2 ou co
     poluente: str | None = None
+    # Inversão térmica: ar mais quente no primeiro nível de pressão acima do terreno do que a
+    # 2 m prende a poluição perto do chão. delta = T(nível) - T(2 m) em °C; > 0 = inversão.
+    inversao_termica: bool | None = None
+    inversao_delta_c: float | None = None
+
+
+class TelemetriaAparelho(BaseModel):
+    """Payload de `telemetria.aparelho`: o celular como nó sensor (sinal de presença).
+
+    Só a célula geohash6 (~1,2 x 0,6 km) trafega pelo broker, nunca a coordenada exata; o
+    processor conta aparelhos ativos por célula (ver ecopulse_common.telemetria)."""
+
+    device_id: UUID
+    geohash: str = Field(min_length=6, max_length=6)
+    precisao_m: float | None = Field(default=None, ge=0)
+    registrado_em: datetime

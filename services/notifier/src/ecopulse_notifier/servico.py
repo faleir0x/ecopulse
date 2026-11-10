@@ -8,6 +8,7 @@ from typing import Any
 import asyncpg
 from redis.asyncio.cluster import RedisCluster
 
+from ecopulse_common import ordem
 from ecopulse_common.events import (
     Envelope,
     EventType,
@@ -69,6 +70,12 @@ async def notificar(
         return 0
 
     ocorrencia = OcorrenciaPayload.model_validate(envelope.payload)
+    if not await ordem.versao_atual(redis, "notifier", ocorrencia.id, ocorrencia.versao):
+        log.debug(
+            "evento antigo descartado",
+            extra={"ocorrencia_id": ocorrencia.id, "versao": ocorrencia.versao},
+        )
+        return 0
     if ocorrencia.status is not StatusOcorrencia.ATIVA:
         return 0
 

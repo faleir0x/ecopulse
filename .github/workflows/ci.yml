@@ -61,12 +61,16 @@ jobs:
       - name: Testes de integração
         env:
           ECOPULSE_REDIS_REMAP_LOCALHOST: "true"
-        run: uv run pytest -q -m integration
+          # Infra fora do ar faz o teste FALHAR em vez de pular (job verde sem testar nada)
+          ECOPULSE_EXIGIR_INFRA: "1"
+        run: uv run pytest -q -rs -m integration
       - name: Subir serviços
         working-directory: infra
         run: docker compose up -d --build --wait --wait-timeout 300
       - name: Smoke test
         run: infra/smoke.sh
+      - name: Relato vira alerta (e2e)
+        run: uv run pytest -m e2e -s -q
       - name: Logs em caso de falha
         if: failure()
         working-directory: infra

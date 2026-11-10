@@ -35,6 +35,7 @@ def _ocorrencia_da_linha(linha: asyncpg.Record) -> OcorrenciaPayload:
         expira_em=linha["expira_em"],
         resolucoes=linha["resolucoes"],
         encerrada_em=linha["encerrada_em"],
+        versao=linha["versao"],
     )
 
 
@@ -123,7 +124,7 @@ async def criar_ocorrencia(
             ST_Y(geom::geometry) AS latitude,
             ST_X(geom::geometry) AS longitude,
             geohash, confirmacoes, status, criada_em, atualizada_em, expira_em,
-            resolucoes, encerrada_em
+            resolucoes, encerrada_em, versao
         """,
         relato.tipo.value,
         relato.severidade.value,
@@ -149,6 +150,7 @@ async def confirmar_ocorrencia(
         """
         UPDATE ocorrencias
         SET confirmacoes = confirmacoes + 1,
+            versao = versao + 1,
             severidade = CASE
                 WHEN array_position($3::text[], severidade)
                      >= array_position($3::text[], $2::text)
@@ -163,7 +165,7 @@ async def confirmar_ocorrencia(
             ST_Y(geom::geometry) AS latitude,
             ST_X(geom::geometry) AS longitude,
             geohash, confirmacoes, status, criada_em, atualizada_em, expira_em,
-            resolucoes, encerrada_em
+            resolucoes, encerrada_em, versao
         """,
         ocorrencia_id,
         severidade.value,
@@ -206,6 +208,7 @@ async def elevar_severidade(
         """
         UPDATE ocorrencias
         SET severidade = $2::text,
+            versao = versao + 1,
             atualizada_em = now()
         WHERE id = $1
           AND array_position($3::text[], severidade)
@@ -215,7 +218,7 @@ async def elevar_severidade(
             ST_Y(geom::geometry) AS latitude,
             ST_X(geom::geometry) AS longitude,
             geohash, confirmacoes, status, criada_em, atualizada_em, expira_em,
-            resolucoes, encerrada_em
+            resolucoes, encerrada_em, versao
         """,
         ocorrencia_id,
         severidade.value,
@@ -243,7 +246,7 @@ async def travar_ocorrencia(
             ST_Y(geom::geometry) AS latitude,
             ST_X(geom::geometry) AS longitude,
             geohash, confirmacoes, status, criada_em, atualizada_em, expira_em,
-            resolucoes, encerrada_em
+            resolucoes, encerrada_em, versao
         FROM ocorrencias
         WHERE id = $1
         FOR UPDATE
@@ -280,6 +283,7 @@ async def registrar_resolucao(
         """
         UPDATE ocorrencias
         SET resolucoes = resolucoes + 1,
+            versao = versao + 1,
             atualizada_em = now(),
             status = CASE WHEN $2 THEN 'expirada' ELSE status END,
             encerrada_em = CASE WHEN $2 THEN now() ELSE encerrada_em END,
@@ -290,7 +294,7 @@ async def registrar_resolucao(
             ST_Y(geom::geometry) AS latitude,
             ST_X(geom::geometry) AS longitude,
             geohash, confirmacoes, status, criada_em, atualizada_em, expira_em,
-            resolucoes, encerrada_em
+            resolucoes, encerrada_em, versao
         """,
         ocorrencia_id,
         encerrar,
@@ -317,14 +321,15 @@ async def expirar_vencidas(conn: asyncpg.Connection) -> list[OcorrenciaPayload]:
     linhas = await conn.fetch(
         """
         UPDATE ocorrencias
-        SET status = 'expirada', atualizada_em = now(), encerrada_em = expira_em
+        SET status = 'expirada', versao = versao + 1, atualizada_em = now(),
+            encerrada_em = expira_em
         WHERE status = 'ativa' AND expira_em <= now()
         RETURNING
             id, tipo, severidade,
             ST_Y(geom::geometry) AS latitude,
             ST_X(geom::geometry) AS longitude,
             geohash, confirmacoes, status, criada_em, atualizada_em, expira_em,
-            resolucoes, encerrada_em
+            resolucoes, encerrada_em, versao
         """
     )
     return [_ocorrencia_da_linha(linha) for linha in linhas]

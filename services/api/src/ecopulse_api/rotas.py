@@ -28,7 +28,7 @@ from redis.asyncio.cluster import RedisCluster
 from redis.exceptions import RedisError
 
 from ecopulse_api.schemas import ModoRota, OcorrenciaEvitada, RotaDireta, RotaSegura
-from ecopulse_common import geohash
+from ecopulse_common import geohash, zonas
 from ecopulse_common.config import Settings
 from ecopulse_common.events import OcorrenciaPayload, Severidade
 
@@ -41,11 +41,9 @@ PERFIS: dict[ModoRota, str] = {
     "carro": "driving-car",
 }
 
+# Raio contornado por severidade: a mesma zona de influência do alerta e do mapa
 RAIO_POR_SEVERIDADE: dict[Severidade, float] = {
-    Severidade.BAIXO: 0.0,
-    Severidade.MODERADO: 150.0,
-    Severidade.ALTO: 250.0,
-    Severidade.CRITICO: 400.0,
+    severidade: zonas.raio_evitado_na_rota(severidade) for severidade in Severidade
 }
 
 DISTANCIA_MAXIMA_M = 50_000.0
@@ -262,6 +260,7 @@ def _ocorrencia_da_linha(linha: asyncpg.Record) -> OcorrenciaPayload:
         criada_em=linha["criada_em"],
         atualizada_em=linha["atualizada_em"],
         expira_em=linha["expira_em"],
+        versao=linha["versao"],
     )
 
 
@@ -280,7 +279,7 @@ async def ocorrencias_ativas(
                 id, tipo, severidade,
                 ST_Y(geom::geometry) AS latitude,
                 ST_X(geom::geometry) AS longitude,
-                geohash, confirmacoes, status, criada_em, atualizada_em, expira_em
+                geohash, confirmacoes, status, criada_em, atualizada_em, expira_em, versao
             FROM ocorrencias
             WHERE status = 'ativa'
               AND expira_em > now()

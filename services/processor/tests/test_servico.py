@@ -114,6 +114,25 @@ async def test_relatos_proximos_do_mesmo_tipo_agrupam(pool: asyncpg.Pool) -> Non
 
 
 @pytest.mark.integration
+async def test_versao_incrementa_a_cada_alteracao(pool: asyncpg.Pool) -> None:
+    await processar_relato(pool, _envelope(severidade=Severidade.ALTO))
+    await processar_relato(pool, _envelope(latitude=LAT + 0.0009, severidade=Severidade.CRITICO))
+
+    criada, atualizada = [
+        OcorrenciaPayload.model_validate(dados["payload"]) for _, dados in await _eventos(pool)
+    ]
+    assert (criada.versao, atualizada.versao) == (1, 2)
+
+    async with pool.acquire() as conn:
+        await conn.execute("UPDATE ocorrencias SET expira_em = now() - interval '1 minute'")
+    assert await expirar_ocorrencias(pool) == 1
+
+    expirada = OcorrenciaPayload.model_validate((await _eventos(pool))[-1][1]["payload"])
+    assert expirada.status is StatusOcorrencia.EXPIRADA
+    assert expirada.versao > atualizada.versao
+
+
+@pytest.mark.integration
 async def test_relatos_a_um_km_nao_agrupam(pool: asyncpg.Pool) -> None:
     await processar_relato(pool, _envelope())
     await processar_relato(pool, _envelope(latitude=LAT + 0.009))

@@ -28,6 +28,15 @@ class RedisFalso:
     def __init__(self) -> None:
         self.dados: dict[str, str] = {}
         self.expiracao: dict[str, int] = {}
+        self.versoes: dict[str, int] = {}
+
+    async def eval(self, _script: str, _numkeys: int, chave: str, versao: int, ttl: int) -> int:
+        atual = self.versoes.get(chave, 0)
+        if versao < atual:
+            return 0
+        self.versoes[chave] = max(atual, versao)
+        self.expiracao[chave] = ttl
+        return 1
 
     async def set(
         self, chave: str, valor: str, *, nx: bool = False, ex: int | None = None
@@ -81,6 +90,7 @@ def _ocorrencia(
     severidade: Severidade = Severidade.ALTO,
     status: StatusOcorrencia = StatusOcorrencia.ATIVA,
     expira_em: datetime | None = None,
+    versao: int = 1,
 ) -> OcorrenciaPayload:
     return OcorrenciaPayload(
         id=1,
@@ -94,6 +104,7 @@ def _ocorrencia(
         criada_em=AGORA,
         atualizada_em=AGORA,
         expira_em=expira_em or AGORA + timedelta(hours=1),
+        versao=versao,
     )
 
 
@@ -194,6 +205,33 @@ async def test_piora_envia_de_novo(monkeypatch: pytest.MonkeyPatch, esperas: lis
 
     assert (primeiro, segundo) == (1, 1)
     assert len(enviador.mensagens) == 2
+
+
+async def test_evento_com_versao_antiga_nao_envia_push(
+    monkeypatch: pytest.MonkeyPatch, esperas: list[float]
+) -> None:
+    _destinos(monkeypatch, [_destino()])
+    _remover(monkeypatch)
+    redis = RedisFalso()
+    enviador = EnviadorFalso()
+
+    novo = await servico.notificar(
+        _envelope(_ocorrencia(severidade=Severidade.ALTO, versao=3)),
+        POOL,
+        cast(RedisCluster, redis),
+        enviador,
+        AGORA,
+    )
+    antigo = await servico.notificar(
+        _envelope(_ocorrencia(severidade=Severidade.CRITICO, versao=2)),
+        POOL,
+        cast(RedisCluster, redis),
+        enviador,
+        AGORA,
+    )
+
+    assert (novo, antigo) == (1, 0)
+    assert len(enviador.mensagens) == 1
 
 
 async def test_evento_expirado_nao_consulta_destinos(

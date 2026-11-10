@@ -108,6 +108,7 @@ def _ocorrencia_da_linha(linha: asyncpg.Record) -> OcorrenciaPayload:
         expira_em=linha["expira_em"],
         resolucoes=linha["resolucoes"],
         encerrada_em=linha["encerrada_em"],
+        versao=linha["versao"],
     )
 
 
@@ -120,7 +121,7 @@ async def _ocorrencias_ativas(pool: asyncpg.Pool, celulas: list[str]) -> list[Oc
                 ST_Y(geom::geometry) AS latitude,
                 ST_X(geom::geometry) AS longitude,
                 geohash, confirmacoes, status, criada_em, atualizada_em, expira_em,
-                resolucoes, encerrada_em
+                resolucoes, encerrada_em, versao
             FROM ocorrencias
             WHERE status = 'ativa'
               AND expira_em > now()
@@ -213,7 +214,7 @@ async def buscar_ocorrencia(pool: asyncpg.Pool, ocorrencia_id: int) -> Ocorrenci
                 ST_Y(geom::geometry) AS latitude,
                 ST_X(geom::geometry) AS longitude,
                 geohash, confirmacoes, status, criada_em, atualizada_em, expira_em,
-                resolucoes, encerrada_em
+                resolucoes, encerrada_em, versao
             FROM ocorrencias
             WHERE id = $1
             """,

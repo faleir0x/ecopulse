@@ -6,6 +6,8 @@
 **/.ruff_cache
 .git
 design
+mobile
+mobile-design
 docs
 apps
 infra

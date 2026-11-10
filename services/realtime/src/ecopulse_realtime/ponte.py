@@ -13,7 +13,7 @@ import logging
 from aio_pika.abc import AbstractChannel, AbstractExchange
 from redis.asyncio.cluster import RedisCluster
 
-from ecopulse_common import messaging
+from ecopulse_common import messaging, ordem
 from ecopulse_common.config import Settings
 from ecopulse_common.consumer import assinar
 from ecopulse_common.events import Envelope, OcorrenciaPayload
@@ -38,6 +38,12 @@ async def iniciar(channel: AbstractChannel, events: AbstractExchange, redis: Red
         if not envelope.type.value.startswith("ocorrencia."):
             raise ValueError(f"tipo inesperado: {envelope.type.value}")
         payload = OcorrenciaPayload.model_validate(envelope.payload)
+        if not await ordem.versao_atual(redis, "realtime", payload.id, payload.versao):
+            log.debug(
+                "evento antigo descartado",
+                extra={"ocorrencia_id": payload.id, "versao": payload.versao},
+            )
+            return
         alerta = protocolo.Alerta.model_validate(
             {"type": envelope.type.value, "ocorrencia": payload}
         )

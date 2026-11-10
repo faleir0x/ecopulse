@@ -35,6 +35,10 @@ jobs:
         run: uv run mypy packages services
       - name: Testes unitários
         run: uv run pytest -q
+      - name: Contrato do app em dia
+        run: |
+          uv run python -m ecopulse_api.contrato > /tmp/contrato.gerado.ts
+          diff -u mobile/src/api/contrato.gerado.ts /tmp/contrato.gerado.ts
 
   integration:
     name: Integração (docker compose)

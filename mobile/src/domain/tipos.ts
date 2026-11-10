@@ -1,45 +1,42 @@
-/** Espelha os contratos da API (packages/common/src/ecopulse_common/events.py). */
+/** Espelha os contratos da API. Os tipos do servidor vêm de `contrato.gerado.ts` (OpenAPI). */
+import type {
+  CelulaAmbiente as CelulaAmbienteServidor,
+  HoraPrevista as HoraPrevistaServidor,
+  LeituraAmbiente as LeituraAmbienteServidor,
+  OcorrenciaDetalhe as OcorrenciaDetalheServidor,
+  OcorrenciaEvitada as OcorrenciaEvitadaServidor,
+  OcorrenciaPayload as OcorrenciaPayloadServidor,
+  Presenca as PresencaServidor,
+  RotaDireta as RotaDiretaServidor,
+  RotaSegura as RotaSeguraServidor,
+  Severidade as SeveridadeServidor,
+  SituacaoRelato as SituacaoRelatoServidor,
+  StatusOcorrencia as StatusOcorrenciaServidor,
+  TipoRisco as TipoRiscoServidor,
+} from '@/api/contrato.gerado';
 
-export const TIPOS_RISCO = ['alagamento', 'calor', 'qualidade_ar', 'rota_obstruida'] as const;
-export type TipoRisco = (typeof TIPOS_RISCO)[number];
+export type TipoRisco = TipoRiscoServidor;
+
+export const TIPOS_RISCO = [
+  'alagamento',
+  'calor',
+  'qualidade_ar',
+  'rota_obstruida',
+] as const satisfies readonly TipoRisco[];
 
 /** Ordem crescente de gravidade. */
-export const SEVERIDADES = ['baixo', 'moderado', 'alto', 'critico'] as const;
-export type Severidade = (typeof SEVERIDADES)[number];
+export type Severidade = SeveridadeServidor;
 
-export type StatusOcorrencia = 'ativa' | 'expirada';
+export const SEVERIDADES = ['baixo', 'moderado', 'alto', 'critico'] as const satisfies readonly Severidade[];
 
-export type Ocorrencia = {
-  id: number;
-  tipo: TipoRisco;
-  severidade: Severidade;
-  latitude: number;
-  longitude: number;
-  geohash: string;
-  confirmacoes: number;
-  status: StatusOcorrencia;
-  criada_em: string;
-  atualizada_em: string;
-  expira_em: string;
-  /** Marcas "Já passou" (servidor encerra com min(3, confirmações)). */
-  resolucoes?: number;
-  /** Quando deixou de estar ativa (validade ou "Já passou"). */
-  encerrada_em?: string | null;
-};
+export type StatusOcorrencia = StatusOcorrenciaServidor;
+
+export type Ocorrencia = OcorrenciaPayloadServidor;
 
 /** Em qual ocorrência o relato do próprio aparelho entrou (GET /v1/relatos/{client_id}). */
-export type SituacaoRelato = {
-  client_id: string;
-  ocorrencia_id: number | null;
-  status_ocorrencia: StatusOcorrencia | null;
-  confirmacoes: number | null;
-};
+export type SituacaoRelato = SituacaoRelatoServidor;
 
-export type OcorrenciaDetalhe = Ocorrencia & {
-  /** Recebimento de cada relato, do mais antigo ao mais novo (últimos 30). */
-  linha_do_tempo: string[];
-  nota: string | null;
-};
+export type OcorrenciaDetalhe = OcorrenciaDetalheServidor;
 
 export const ROTULO_TIPO: Record<TipoRisco, string> = {
   alagamento: 'Alagamento',
@@ -59,93 +56,22 @@ export function nivel(severidade: Severidade): 1 | 2 | 3 | 4 {
   return (SEVERIDADES.indexOf(severidade) + 1) as 1 | 2 | 3 | 4;
 }
 
-/** Espelha LeituraAmbiente (packages/common/src/ecopulse_common/events.py). */
-export type HoraPrevista = {
-  hora: string;
-  temperatura: number;
-  codigo_tempo: number;
-  chuva_mm: number;
-  /** % de chance de chuva na hora. */
-  prob_chuva?: number | null;
-};
+/** Espelha HoraPrevista (packages/common/src/ecopulse_common/events.py). */
+export type HoraPrevista = HoraPrevistaServidor;
 
-export type LeituraAmbiente = {
-  geohash: string;
-  latitude: number;
-  longitude: number;
-  medido_em: string;
-  fonte: string;
-  temperatura: number | null;
-  sensacao: number | null;
-  codigo_tempo: number | null;
-  minima_dia: number | null;
-  maxima_dia: number | null;
-  aqi: number | null;
-  chuva_mm_h: number | null;
-  proximas_horas: HoraPrevista[];
-  /** mm/h em 12 intervalos de 15 min (próximas 3 h) */
-  chuva_3h: number[];
-  /** Vento a 10 m (km/h); direção em graus de onde sopra. Ausentes em leituras antigas. */
-  vento_kmh?: number | null;
-  vento_direcao?: number | null;
-  rajada_kmh?: number | null;
-  /** Umidade relativa (%). */
-  umidade?: number | null;
-  /** Poluente que mais pesa no AQI: pm2_5, pm10, ozonio, no2, so2, co. */
-  poluente?: string | null;
-  /** Inversão térmica: ar mais quente acima do solo prende a poluição perto do chão. */
-  inversao_termica?: boolean | null;
-  /** °C do nível acima do terreno menos a 2 m; > 0 indica inversão. */
-  inversao_delta_c?: number | null;
-};
+export type LeituraAmbiente = LeituraAmbienteServidor;
 
 /** Aparelhos ativos por perto (GET /v1/presenca). */
-export type Presenca = {
-  aparelhos: number;
-  janela_min: number;
-};
+export type Presenca = PresencaServidor;
 
 /** Espelha CelulaAmbiente (GET /v1/ambiente/camada): célula geohash5 com a última leitura. */
-export type CelulaAmbiente = {
-  geohash: string;
-  lat_min: number;
-  lon_min: number;
-  lat_max: number;
-  lon_max: number;
-  temperatura: number | null;
-  aqi: number | null;
-  medido_em: string;
-};
+export type CelulaAmbiente = CelulaAmbienteServidor;
 
 /** GET /v1/rotas (services/api/src/ecopulse_api/schemas.py). Coordenadas em [lat, lon]. */
-export type ModoRota = 'pedestre' | 'carro';
+export type ModoRota = RotaSeguraServidor['modo'];
 
-export type OcorrenciaRota = {
-  id: number;
-  tipo: TipoRisco;
-  severidade: Severidade;
-  latitude: number;
-  longitude: number;
-};
+export type OcorrenciaRota = OcorrenciaEvitadaServidor;
 
-export type RotaDireta = {
-  distancia_m: number;
-  duracao_s: number;
-  coordenadas: [number, number][];
-  atravessa: number[];
-};
+export type RotaDireta = RotaDiretaServidor;
 
-export type RotaSegura = {
-  modo: ModoRota;
-  distancia_m: number;
-  duracao_s: number;
-  coordenadas: [number, number][];
-  /** Riscos que a direta cruza e esta rota contorna. */
-  evitadas: OcorrenciaRota[];
-  /** Riscos que esta rota ainda cruza (origem/destino dentro de uma zona, ou sem desvio). */
-  no_caminho: OcorrenciaRota[];
-  /** Nenhum caminho evita os riscos: esta rota é a direta. */
-  sem_desvio: boolean;
-  direta: RotaDireta | null;
-  aviso: string | null;
-};
+export type RotaSegura = RotaSeguraServidor;

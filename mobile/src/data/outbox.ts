@@ -117,7 +117,7 @@ export function enfileirar(db: SQLiteDatabase, relato: RelatoEnvio, midias: Midi
       relato.device_id,
       relato.tipo,
       relato.severidade,
-      relato.descricao,
+      relato.descricao ?? null,
       relato.latitude,
       relato.longitude,
       relato.registrado_em,

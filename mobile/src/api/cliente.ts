@@ -1,4 +1,11 @@
 /** Cliente HTTP da API (docs/ARQUITETURA.md, seção API). */
+import type {
+  AparelhoIn,
+  ConfirmacaoIn,
+  LocalEncontrado as LocalEncontradoServidor,
+  RelatoIn,
+  TelemetriaIn,
+} from '@/api/contrato.gerado';
 import { endpoints } from '@/config/endpoints';
 import type {
   CelulaAmbiente,
@@ -8,7 +15,6 @@ import type {
   OcorrenciaDetalhe,
   Presenca,
   RotaSegura,
-  Severidade,
   SituacaoRelato,
   TipoRisco,
 } from '@/domain/tipos';
@@ -32,19 +38,11 @@ export class ApiErro extends Error {
   }
 }
 
-export type RelatoEnvio = {
-  client_id: string;
-  device_id: string;
-  tipo: TipoRisco;
-  severidade: Severidade;
-  descricao: string | null;
-  latitude: number;
-  longitude: number;
-  /** ISO 8601 do momento em que o usuário relatou (pode ser antigo, vindo da fila). */
-  registrado_em: string;
-};
+/** Corpo do POST /v1/relatos (schemas.RelatoIn). */
+export type RelatoEnvio = RelatoIn;
 
-export type ConfirmacaoEnvio = { client_id: string; device_id: string; registrado_em: string };
+/** Corpo das confirmações/resoluções (schemas.ConfirmacaoIn / ResolucaoIn). */
+export type ConfirmacaoEnvio = ConfirmacaoIn;
 
 type Opcoes = { base?: string; fetch?: typeof fetch; signal?: AbortSignal };
 
@@ -249,14 +247,7 @@ export async function lerCamada(bbox: Bbox, op: Opcoes = {}): Promise<CelulaAmbi
 }
 
 /** Corpo do POST /v1/telemetria (schemas.TelemetriaIn): sinal de presença do aparelho. */
-export type TelemetriaEnvio = {
-  device_id: string;
-  latitude: number;
-  longitude: number;
-  precisao_m: number | null;
-  /** ISO 8601 do momento da posição. */
-  registrado_em: string;
-};
+export type TelemetriaEnvio = TelemetriaIn;
 
 /** POST /v1/telemetria → 202. O servidor guarda só a célula (~1 km), não a coordenada exata. */
 export async function enviarTelemetria(corpo: TelemetriaEnvio, op: Opcoes = {}): Promise<void> {
@@ -296,7 +287,8 @@ export async function calcularRota(
   );
 }
 
-export type LocalEncontrado = { nome: string; detalhe: string | null; latitude: number; longitude: number };
+/** GET /v1/locais: resultado da busca de bairro/endereço (schemas.LocalEncontrado). */
+export type LocalEncontrado = LocalEncontradoServidor;
 
 /** GET /v1/locais?q=: bairros/endereços no Brasil (geocodificação no servidor), perto de `perto`. */
 export async function buscarLocais(
@@ -314,15 +306,7 @@ export async function buscarLocais(
 }
 
 /** Corpo do PUT /v1/aparelhos/{id} (schemas.AparelhoIn): registro para push remoto. */
-export type AparelhoEnvio = {
-  token: string;
-  latitude: number;
-  longitude: number;
-  raio_m: number;
-  limiar: Severidade;
-  tipos: TipoRisco[];
-  silenciado_ate: string | null;
-};
+export type AparelhoEnvio = AparelhoIn;
 
 /** PUT /v1/aparelhos/{id} → 204. */
 export async function registrarAparelho(id: string, corpo: AparelhoEnvio, op: Opcoes = {}): Promise<void> {

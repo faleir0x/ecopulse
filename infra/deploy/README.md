@@ -38,6 +38,12 @@ cp .env.example .env && chmod 600 .env
 
 No `.env`: descomente e preencha `API_HOST`, `RT_HOST`, `ACME_EMAIL`, `ECOPULSE_TAG=main`, a chave `ECOPULSE_ORS_API_KEY` (rotas) e o que mais o `.env.example` pede.
 
+Troque também o cookie Erlang do cluster RabbitMQ (o padrão do compose é público no repositório):
+
+```bash
+echo "RABBITMQ_COOKIE=$(openssl rand -hex 24)" >> .env
+```
+
 Firebase (push): copie a conta de serviço para `infra/secrets/firebase.json` com dono = o usuário que roda o notifier (`ECOPULSE_UID`, padrão 1000):
 
 ```bash

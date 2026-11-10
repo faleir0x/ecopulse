@@ -35,3 +35,6 @@ mobile-design/
 # Credenciais (Firebase, Cloudflare): nunca no repositório
 infra/secrets/
 mobile/google-services.json
+
+# Relatório da APS: documento fica só local (entregue fora do repositório)
+docs/relatorio/

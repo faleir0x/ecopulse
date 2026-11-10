@@ -70,11 +70,11 @@ Conferência com o texto da APS (seções II–V) mostrou lacunas; a proposta pe
 - [x] Cloudflare Tunnel (api/rt.faleir0x.com, perfil `tunel`) com IP real via CF-Connecting-IP só vindo do túnel
 
 ## Fase 6: Entrega
-- [ ] **6.1** CD: publicação das imagens no GHCR (packages), com proveniência e SBOM; `docker-compose.ghcr.yml` sobe a stack pelas imagens. Já roda a cada push na main; falta validar numa tag
-- [ ] **6.4** APK do app nas Releases do GitHub (workflow `apk.yml` por tag: expo prebuild + Gradle no runner, assinatura com apksigner). Falta: segredos no repositório e a 1ª tag
-- [ ] **6.5** Push remoto com Firebase (FCM): serviço `notifier` consumindo `ocorrencia.*` e enviando para os aparelhos das células; alerta com o app fechado. Implementado e testado de ponta a ponta com Firebase real; falta validar no APK (6.4) com o app fechado
+- [x] **6.1** CD: publicação das imagens no GHCR (packages, públicos), com proveniência e SBOM; `docker-compose.ghcr.yml` sobe a stack pelas imagens. Validado na main e nas tags v0.7.0-rc.1/rc.2
+- [x] **6.4** APK do app nas Releases do GitHub (workflow `apk.yml` por tag: build sem a keystore, assinatura e Release num segundo job). v0.7.0-rc.2 instalado e funcionando no celular (a rc.1 fechava ao abrir por causa do R8)
+- [x] **6.5** Push remoto com Firebase (FCM): serviço `notifier` consumindo `ocorrencia.*` e enviando para os aparelhos das células. Validado no APK com o app fechado: alerta "Alagamento · Alto — 200 m" na bandeja
 - [x] **6.2** Scripts dos cenários de demonstração (falhas, escala, offline): `infra/demo/`, validados contra a stack local
-- [x] **6.3** Base do relatório final (estrutura ABNT/UNIP): `docs/relatorio/EcoPulse-relatorio-final.docx`; falta a equipe preencher os campos marcados
+- [x] **6.3** Base do relatório final (estrutura ABNT/UNIP), mantida fora do repositório pela equipe
 
 ## Fase 7: Auditoria e aderência final à proposta
 Auditoria do código (correção, segurança, arquitetura e app) e lacunas do texto da APS.

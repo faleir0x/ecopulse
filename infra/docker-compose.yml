@@ -12,7 +12,9 @@ x-redis-node: &redis-node
 
 x-python-env: &python-env
   ECOPULSE_RABBIT_URL: amqp://ecopulse:ecopulse@rabbitmq:5672/
-  ECOPULSE_DATABASE_URL: postgresql://ecopulse:ecopulse@postgres:5432/ecopulse
+  # Dois nós: com target_session_attrs=read-write o asyncpg conecta só no que aceita escrita, então
+  # depois de promover a réplica as conexões novas vão para ela sozinhas (infra/demo/falha-postgres.sh)
+  ECOPULSE_DATABASE_URL: postgresql://ecopulse:ecopulse@postgres:5432,postgres-2:5432/ecopulse?target_session_attrs=read-write
   ECOPULSE_REDIS_NODES: redis-1:7001,redis-2:7002,redis-3:7003
 
 x-python-service: &python-service
@@ -109,10 +111,20 @@ services:
       rabbitmq-2: { condition: service_healthy }
       rabbitmq-3: { condition: service_healthy }
 
+  # PostgreSQL primário + réplica por streaming (postgres-2, hot standby). Failover manual:
+  # promover a réplica (pg_promote); wal_log_hints permite o pg_rewind na volta.
   postgres:
     image: postgis/postgis:16-3.4
     restart: unless-stopped
     networks: [ecopulse]
+    command: &postgres-cmd
+      - postgres
+      - -c
+      - hba_file=/etc/postgresql/pg_hba.conf
+      - -c
+      - wal_log_hints=on
+      - -c
+      - wal_keep_size=512MB
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     environment:
@@ -121,11 +133,38 @@ services:
       POSTGRES_DB: ecopulse
     volumes:
       - pg_data:/var/lib/postgresql/data
+      - ./postgres/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ecopulse -d ecopulse"]  # TCP: ignora o servidor temporário do initdb
       interval: 10s
       timeout: 5s
       retries: 10
+
+  postgres-2:
+    image: postgis/postgis:16-3.4
+    restart: unless-stopped
+    networks: [ecopulse]
+    entrypoint: ["/replica.sh"]
+    command: *postgres-cmd
+    ports:
+      - "127.0.0.1:${POSTGRES_REPLICA_PORT:-5434}:5432"
+    environment:
+      POSTGRES_USER: ecopulse
+      POSTGRES_PASSWORD: ecopulse
+      POSTGRES_DB: ecopulse
+      PRIMARIO: postgres
+    volumes:
+      - pg_data_2:/var/lib/postgresql/data
+      - ./postgres/pg_hba.conf:/etc/postgresql/pg_hba.conf:ro
+      - ./postgres/replica.sh:/replica.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ecopulse -d ecopulse"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    depends_on:
+      # o usuário replicador vem da migração 0003
+      migrate: { condition: service_completed_successfully }
 
   # Aplica as migrações pendentes (postgres/migracoes) e termina; os serviços esperam por ele.
   # Banco de testes: docker compose run --rm -e PGDATABASE=ecopulse_teste migrate
@@ -270,9 +309,7 @@ services:
       args: { SERVICE: environment }
     command: ["python", "-m", "ecopulse_environment"]
     environment:
-      ECOPULSE_RABBIT_URL: amqp://ecopulse:ecopulse@rabbitmq:5672/
-      ECOPULSE_DATABASE_URL: postgresql://ecopulse:ecopulse@postgres:5432/ecopulse
-      ECOPULSE_REDIS_NODES: redis-1:7001,redis-2:7002,redis-3:7003
+      <<: *python-env
       # "open-meteo" (real), "simulador" ou "simulador-calor" (demo)
       ECOPULSE_AMBIENTE_FONTE: ${AMBIENTE_FONTE:-open-meteo}
 
@@ -328,6 +365,7 @@ networks:
         - subnet: 10.89.70.0/24
 
 volumes:
+  pg_data_2:
   rabbitmq_1:
   rabbitmq_2:
   rabbitmq_3:

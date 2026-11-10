@@ -23,11 +23,13 @@ from ecopulse_api.schemas import (
     LocalEncontrado,
     ModoRota,
     OcorrenciaDetalhe,
+    Presenca,
     RelatoAceito,
     RelatoIn,
     ResolucaoIn,
     RotaSegura,
     SituacaoRelato,
+    TelemetriaIn,
 )
 from ecopulse_common import geohash, messaging
 from ecopulse_common.ambiente import registrar_interesse
@@ -42,10 +44,12 @@ from ecopulse_common.events import (
     RelatoRecebido,
     ResolucaoRecebida,
     StatusOcorrencia,
+    TelemetriaAparelho,
     TipoRisco,
 )
 from ecopulse_common.logs import configure_logging
 from ecopulse_common.messaging import Topology
+from ecopulse_common.telemetria import JANELA_PRESENCA_S, contar_presenca
 
 log = logging.getLogger(__name__)
 
@@ -199,6 +203,28 @@ async def _publicar_resolucao(
     )
 
 
+async def _publicar_telemetria(request: Request, telemetria: TelemetriaIn) -> None:
+    """Publica `telemetria.aparelho` só com a célula geohash6 (nunca a coordenada exata)."""
+    celula = geohash.encode(telemetria.latitude, telemetria.longitude, geohash.CELL_PRECISION)
+    envelope = Envelope(
+        type=EventType.TELEMETRIA_APARELHO,
+        geohash=celula,
+        payload=TelemetriaAparelho(
+            device_id=telemetria.device_id,
+            geohash=celula,
+            precisao_m=telemetria.precisao_m,
+            registrado_em=telemetria.registrado_em,
+        ).model_dump(mode="json"),
+    )
+    await _publicar_evento(
+        request,
+        envelope,
+        falha="falha ao publicar telemetria",
+        aceito="telemetria aceita",
+        contexto={"device_id": str(telemetria.device_id)},
+    )
+
+
 @app.get("/health")
 async def health() -> dict[str, str]:
     """Liveness: o processo está de pé."""
@@ -219,6 +245,20 @@ async def criar_relato(relato: RelatoIn, request: Request) -> RelatoAceito:
     await _aplicar_limite(request, relato.device_id)
     await _publicar_relato(request, RelatoRecebido(**relato.model_dump()))
     return RelatoAceito(client_id=relato.client_id)
+
+
+@app.post("/v1/telemetria", status_code=status.HTTP_202_ACCEPTED)
+async def enviar_telemetria(telemetria: TelemetriaIn, request: Request) -> dict[str, bool]:
+    """Aceita o sinal de presença do aparelho e publica `telemetria.aparelho` com a célula
+    geohash6. A coordenada exata não sai deste endpoint (nem para o broker, nem para o log)."""
+    ip = _ip_cliente(request)
+    _exigir_limite(
+        await limite.consumir_telemetria(_redis(request), ip),
+        "muita telemetria deste IP",
+        {"ip": ip},
+    )
+    await _publicar_telemetria(request, telemetria)
+    return {"aceito": True}
 
 
 @app.get("/v1/relatos/{client_id}")
@@ -304,6 +344,30 @@ async def ler_ambiente(
     if resultado is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "sem leitura")
     return resultado
+
+
+@app.get("/v1/presenca")
+async def ler_presenca(
+    request: Request,
+    lat: Annotated[float, Query(ge=-90, le=90)],
+    lon: Annotated[float, Query(ge=-180, le=180)],
+) -> Presenca:
+    """Aparelhos com sinal na janela, somando a célula geohash6 do ponto e as 8 vizinhas.
+    Só a contagem sai daqui; o Redis guarda apenas device_id → último sinal por célula."""
+    ip = _ip_cliente(request)
+    _exigir_limite(
+        await limite.consumir_ambiente(_redis(request), ip),
+        "muitas consultas de presença deste IP",
+        {"ip": ip},
+    )
+    celula = geohash.encode(lat, lon, geohash.CELL_PRECISION)
+    celulas = [celula, *geohash.neighbors(celula)]
+    try:
+        aparelhos = await contar_presenca(_redis(request), celulas, time.time())
+    except RedisError as exc:
+        log.warning("presença indisponível", extra={"geohash": celula})
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "presença indisponível") from exc
+    return Presenca(aparelhos=aparelhos, janela_min=JANELA_PRESENCA_S // 60)
 
 
 @app.get("/v1/locais")

@@ -106,6 +106,60 @@ async def test_open_meteo_caso_completo() -> None:
     assert leitura.chuva_mm_h == pytest.approx(1.2)
 
 
+async def test_open_meteo_com_niveis_de_pressao_detecta_inversao() -> None:
+    previsao = _carregar("openmeteo_previsao.json")
+    ar = _carregar("openmeteo_ar.json")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "air-quality-api.open-meteo.com":
+            return httpx.Response(200, json=ar)
+        assert "temperature_925hPa" in request.url.params["hourly"]
+        assert "geopotential_height_850hPa" in request.url.params["hourly"]
+        return httpx.Response(200, json=previsao)
+
+    async with _cliente(handler) as cliente:
+        leitura = await OpenMeteo(cliente).ler(GEOHASH5, LATITUDE, LONGITUDE)
+
+    # 925 hPa a 885 m (> 737 m + 100 m) com 18,9 °C contra 16,1 °C a 2 m
+    assert leitura.inversao_termica is True
+    assert leitura.inversao_delta_c == pytest.approx(2.8)
+
+
+async def test_open_meteo_sem_niveis_de_pressao_deixa_inversao_none() -> None:
+    previsao = _carregar("openmeteo_previsao.json")
+    previsao.pop("elevation")
+    for campo in (
+        "temperature_925hPa",
+        "geopotential_height_925hPa",
+        "temperature_850hPa",
+        "geopotential_height_850hPa",
+    ):
+        previsao["hourly"].pop(campo)
+    ar = _carregar("openmeteo_ar.json")
+    handler = _handler(previsao=_resposta(previsao), ar=_resposta(ar))
+
+    async with _cliente(handler) as cliente:
+        leitura = await OpenMeteo(cliente).ler(GEOHASH5, LATITUDE, LONGITUDE)
+
+    assert leitura.temperatura == pytest.approx(16.1)
+    assert leitura.inversao_termica is None
+    assert leitura.inversao_delta_c is None
+
+
+async def test_open_meteo_niveis_nulos_deixam_inversao_none() -> None:
+    previsao = _carregar("openmeteo_previsao.json")
+    previsao["hourly"]["temperature_925hPa"] = [None] * 12
+    previsao["hourly"].pop("temperature_850hPa")
+    ar = _carregar("openmeteo_ar.json")
+    handler = _handler(previsao=_resposta(previsao), ar=_resposta(ar))
+
+    async with _cliente(handler) as cliente:
+        leitura = await OpenMeteo(cliente).ler(GEOHASH5, LATITUDE, LONGITUDE)
+
+    assert leitura.inversao_termica is None
+    assert leitura.inversao_delta_c is None
+
+
 async def test_open_meteo_sem_vento_deixa_vento_none() -> None:
     previsao = _carregar("openmeteo_previsao.json")
     for campo in ("wind_speed_10m", "wind_direction_10m", "wind_gusts_10m"):
@@ -240,3 +294,25 @@ async def test_simulador_previsao_coerente() -> None:
         assert abs(seguinte.chuva_mm - anterior.chuva_mm) <= 1.0
     for chuva_anterior, chuva_seguinte in pairwise(leitura.chuva_3h):
         assert abs(chuva_seguinte - chuva_anterior) <= 1.0
+
+
+async def test_simulador_madrugada_sem_chuva_gera_inversao() -> None:
+    # 5h UTC = 2h em Brasília; onda de calor garante céu limpo (sem chuva).
+    madrugada = datetime(2026, 11, 8, 5, 0, tzinfo=UTC)
+    leitura = await Simulador(semente=3, onda_de_calor=True, agora=madrugada).ler(
+        GEOHASH5, LATITUDE, LONGITUDE
+    )
+
+    assert leitura.chuva_mm_h == 0.0
+    assert leitura.inversao_termica is True
+    assert leitura.inversao_delta_c is not None
+    assert 0.5 <= leitura.inversao_delta_c <= 4.0
+
+
+async def test_simulador_durante_o_dia_nao_gera_inversao() -> None:
+    # 14h30 UTC = 11h30 em Brasília.
+    leitura = await Simulador(semente=3, agora=AGORA).ler(GEOHASH5, LATITUDE, LONGITUDE)
+
+    assert leitura.inversao_termica is False
+    assert leitura.inversao_delta_c is not None
+    assert -8.0 <= leitura.inversao_delta_c <= -4.0

@@ -23,6 +23,24 @@ class RelatoAceito(BaseModel):
     client_id: UUID
 
 
+class TelemetriaIn(BaseModel):
+    """Sinal de presença do aparelho (POST /v1/telemetria). A coordenada exata só é usada para
+    calcular a célula geohash6; ela não é publicada nem gravada."""
+
+    device_id: UUID
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+    precisao_m: float | None = Field(default=None, ge=0, le=10_000)
+    registrado_em: datetime
+
+
+class Presenca(BaseModel):
+    """Aparelhos ativos por perto (GET /v1/presenca), agregados por célula geohash6."""
+
+    aparelhos: int
+    janela_min: int
+
+
 class ConfirmacaoIn(BaseModel):
     """Confirmação de uma ocorrência existente. Vira um relato no local da ocorrência."""
 

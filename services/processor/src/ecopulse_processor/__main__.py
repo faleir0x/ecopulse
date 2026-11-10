@@ -1,12 +1,13 @@
 """Entrada do worker: python -m ecopulse_processor
 
-- configure_logging("processor"), pool do banco, conexão RabbitMQ
+- configure_logging("processor"), pool do banco, conexão RabbitMQ, Redis Cluster
 - canal com publisher_confirms=True e set_qos(prefetch_count=20)
 - declare_topology(settings.partitions) e consume() em TODAS as filas-partição com
   handler que despacha relato.recebido e resolucao.recebida
+- canal próprio de telemetria com set_qos(prefetch_count=50) para contar presença por célula
 - tarefa em paralelo: a cada regras.INTERVALO_EXPIRACAO_S chama expirar_ocorrencias
   (loga e continua em caso de erro)
-- SIGTERM/SIGINT: para de consumir, cancela a tarefa, fecha conexão e pool
+- SIGTERM/SIGINT: para de consumir, cancela a tarefa, fecha canais, conexão, Redis e pool
 """
 
 import asyncio
@@ -18,12 +19,13 @@ import aio_pika
 import asyncpg
 
 from ecopulse_common import messaging
+from ecopulse_common.cache import create_cluster
 from ecopulse_common.config import Settings
 from ecopulse_common.consumer import PermanentError, consume
 from ecopulse_common.db import create_pool
 from ecopulse_common.events import Envelope, EventType
 from ecopulse_common.logs import configure_logging
-from ecopulse_processor import ambiente, regras, relay
+from ecopulse_processor import ambiente, regras, relay, telemetria
 from ecopulse_processor.servico import (
     expirar_ocorrencias,
     processar_relato,
@@ -61,6 +63,7 @@ async def main() -> None:
     log.info("iniciando processor")
 
     pool = await create_pool(settings.database_url, min_size=1, max_size=10)
+    redis = create_cluster(settings)
     connection = await messaging.connect(settings.rabbit_url)
     channel = await connection.channel(publisher_confirms=True)
     await channel.set_qos(prefetch_count=20)
@@ -74,6 +77,10 @@ async def main() -> None:
     canal_ambiente = await connection.channel(publisher_confirms=True)
     await canal_ambiente.set_qos(prefetch_count=20)
     await ambiente.iniciar(canal_ambiente, topology.events, pool)
+
+    canal_telemetria = await connection.channel(publisher_confirms=True)
+    await canal_telemetria.set_qos(prefetch_count=50)
+    await telemetria.iniciar(canal_telemetria, topology.events, redis)
 
     async def _handler(envelope: Envelope) -> None:
         await despachar(pool, envelope)
@@ -100,11 +107,13 @@ async def main() -> None:
     with contextlib.suppress(asyncio.CancelledError):
         await tarefa_relay
 
+    await canal_telemetria.close()
     await canal_ambiente.close()
     await canal_relay.close()
     await channel.close()
     await connection.close()
     await pool.close()
+    await redis.aclose()
     log.info("processor encerrado")
 
 

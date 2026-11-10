@@ -33,6 +33,9 @@ TOKENS_POR_SEGUNDO_VOTO = 1 / 30
 # Consultas ambientais: cada pedido registra interesse em células para a Open-Meteo
 CAPACIDADE_AMBIENTE = 30
 TOKENS_POR_SEGUNDO_AMBIENTE = 0.5
+# Telemetria de presença: 10 sinais em rajada; depois, 1 por minuto
+CAPACIDADE_TELEMETRIA = 10
+TOKENS_POR_SEGUNDO_TELEMETRIA = 1 / 60
 
 _SCRIPT = """
 local capacidade = tonumber(ARGV[1])
@@ -94,6 +97,10 @@ def chave_voto(ip: str) -> str:
 
 def chave_ambiente(ip: str) -> str:
     return f"rl:ambiente:{{{ip}}}"
+
+
+def chave_telemetria(ip: str) -> str:
+    return f"rl:telemetria:{{{ip}}}"
 
 
 # Registro/renovação do aparelho: 5 em rajada; depois, 1 a cada 30 s
@@ -204,3 +211,13 @@ async def consumir_ambiente(
 ) -> Resultado:
     """Tenta gastar 1 token de consulta ambiental do IP de origem."""
     return await _consumir(redis, chave_ambiente(ip), capacidade, tokens_por_segundo, {"ip": ip})
+
+
+async def consumir_telemetria(
+    redis: RedisCluster,
+    ip: str,
+    capacidade: int = CAPACIDADE_TELEMETRIA,
+    tokens_por_segundo: float = TOKENS_POR_SEGUNDO_TELEMETRIA,
+) -> Resultado:
+    """Tenta gastar 1 token de telemetria de presença do IP de origem."""
+    return await _consumir(redis, chave_telemetria(ip), capacidade, tokens_por_segundo, {"ip": ip})

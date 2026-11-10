@@ -93,6 +93,16 @@ export type LeituraAmbiente = {
   umidade?: number | null;
   /** Poluente que mais pesa no AQI: pm2_5, pm10, ozonio, no2, so2, co. */
   poluente?: string | null;
+  /** Inversão térmica: ar mais quente acima do solo prende a poluição perto do chão. */
+  inversao_termica?: boolean | null;
+  /** °C do nível acima do terreno menos a 2 m; > 0 indica inversão. */
+  inversao_delta_c?: number | null;
+};
+
+/** Aparelhos ativos por perto (GET /v1/presenca). */
+export type Presenca = {
+  aparelhos: number;
+  janela_min: number;
 };
 
 /** Espelha CelulaAmbiente (GET /v1/ambiente/camada): célula geohash5 com a última leitura. */

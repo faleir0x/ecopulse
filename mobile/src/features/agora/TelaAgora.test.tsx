@@ -47,6 +47,9 @@ jest.mock('@/features/mapa/useEndereco', () => ({
   useEndereco: () => 'Barra Funda',
 }));
 
+// A presença tem o próprio provider de react-query; aqui só importa que a tela monte.
+jest.mock('./Presenca', () => ({ Presenca: () => null }));
+
 jest.mock('@/state/ajustes', () => ({
   useAjustes: () => ({ raioM: 1000 }),
 }));

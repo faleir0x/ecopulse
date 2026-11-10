@@ -27,7 +27,9 @@ import { Cabecalho } from './Cabecalho';
 import { bboxDoRaio, nivelArMedido, nivelCalorMedido } from './escalas';
 import { Entrada } from './Entrada';
 import { HourlyStrip } from './HourlyStrip';
+import { InversaoCard } from './InversaoCard';
 import { OcorrenciasTop } from './OcorrenciasTop';
+import { Presenca } from './Presenca';
 import { RainCard } from './RainCard';
 import { WindCard } from './WindCard';
 import { RiskSummary } from './RiskSummary';
@@ -220,6 +222,7 @@ export function TelaAgora() {
                       onAbrirMapa={abrirMapa}
                       medido={medido}
                     />
+                    <Presenca coords={coordsAmbiente} />
                   </Entrada>
 
                   <Entrada indice={5}>
@@ -227,6 +230,7 @@ export function TelaAgora() {
                       <AqiGauge aqi={leitura?.aqi ?? null} poluente={leitura?.poluente ?? null} />
                       <RainCard chuva3h={leitura?.chuva_3h ?? null} />
                     </View>
+                    <InversaoCard leitura={leitura} />
                     <WindCard
                       ventoKmh={leitura?.vento_kmh ?? null}
                       direcao={leitura?.vento_direcao ?? null}

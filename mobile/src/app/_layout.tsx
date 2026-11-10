@@ -6,6 +6,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
+import { useTelemetria } from '@/features/telemetria';
 import { fontes } from '@/theme/fontes';
 import { AjustesProvider } from '@/state/ajustes';
 import { AlertasProvider } from '@/state/alertas';
@@ -54,6 +55,7 @@ export default function RootLayout() {
 /** Barra de status e fundo seguem o tema escolhido no app, não só o do sistema. */
 function Navegacao() {
   const { esquema, cor } = useTema();
+  useTelemetria();
   return (
     <>
       <StatusBar style={esquema === 'escuro' ? 'light' : 'dark'} />

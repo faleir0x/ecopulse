@@ -8,6 +8,7 @@ from typing import Any, Protocol
 import httpx
 
 from ecopulse_common.events import HoraPrevista, LeituraAmbiente
+from ecopulse_environment.inversao import avaliar_inversao
 
 URL_PREVISAO = "https://api.open-meteo.com/v1/forecast"
 URL_AR = "https://air-quality-api.open-meteo.com/v1/air-quality"
@@ -15,6 +16,7 @@ TIMEOUT_S = 10.0
 
 HORAS = 12
 INTERVALOS_15MIN = 12
+FUSO_BRASILIA = timedelta(hours=-3)
 
 
 def _objeto(valor: Any, nome: str) -> dict[str, Any]:
@@ -128,6 +130,22 @@ def _montar_leitura(
         chuva_3h[0] if chuva_3h else _numero(atual.get("precipitation"), "current.precipitation")
     )
 
+    niveis = [
+        (
+            _primeiro(horaria.get("temperature_925hPa")),
+            _primeiro(horaria.get("geopotential_height_925hPa")),
+        ),
+        (
+            _primeiro(horaria.get("temperature_850hPa")),
+            _primeiro(horaria.get("geopotential_height_850hPa")),
+        ),
+    ]
+    inversao_termica, inversao_delta_c = avaliar_inversao(
+        _opcional(atual.get("temperature_2m")),
+        _opcional(dados.get("elevation")),
+        niveis,
+    )
+
     return LeituraAmbiente(
         geohash=geohash5,
         latitude=latitude,
@@ -148,6 +166,8 @@ def _montar_leitura(
         rajada_kmh=_opcional(atual.get("wind_gusts_10m")),
         umidade=_percentual(atual.get("relative_humidity_2m")),
         poluente=poluente,
+        inversao_termica=inversao_termica,
+        inversao_delta_c=inversao_delta_c,
     )
 
 
@@ -156,6 +176,13 @@ def _opcional(valor: Any) -> float | None:
     if isinstance(valor, bool) or not isinstance(valor, (int, float)):
         return None
     return round(float(valor), 1)
+
+
+def _primeiro(valor: Any) -> float | None:
+    """Primeiro item de uma série horária ou None (série ausente/vazia)."""
+    if not isinstance(valor, list) or not valor:
+        return None
+    return _opcional(valor[0])
 
 
 def _percentual(valor: Any) -> int | None:
@@ -197,7 +224,9 @@ class OpenMeteo:
 
     Previsão: current=temperature_2m,apparent_temperature,weather_code,precipitation,
     wind_speed_10m,wind_direction_10m,wind_gusts_10m (km/h; vento é opcional);
-    hourly=temperature_2m,weather_code,precipitation com forecast_hours=12;
+    hourly=temperature_2m,weather_code,precipitation,temperature_925hPa,temperature_850hPa,
+    geopotential_height_925hPa,geopotential_height_850hPa com forecast_hours=12 (níveis de
+    pressão alimentam a detecção de inversão térmica; ausentes viram None);
     daily=temperature_2m_max,temperature_2m_min com forecast_days=1;
     minutely_15=precipitation com forecast_minutely_15=12; timezone=UTC.
     Ar: current=us_aqi.
@@ -223,7 +252,11 @@ class OpenMeteo:
                 "temperature_2m,apparent_temperature,weather_code,precipitation,"
                 "wind_speed_10m,wind_direction_10m,wind_gusts_10m,relative_humidity_2m"
             ),
-            "hourly": "temperature_2m,weather_code,precipitation,precipitation_probability",
+            "hourly": (
+                "temperature_2m,weather_code,precipitation,precipitation_probability,"
+                "temperature_925hPa,temperature_850hPa,"
+                "geopotential_height_925hPa,geopotential_height_850hPa"
+            ),
             "forecast_hours": HORAS,
             "daily": "temperature_2m_max,temperature_2m_min",
             "forecast_days": 1,
@@ -272,6 +305,8 @@ class Simulador:
 
     Para a demonstração: `onda_de_calor=True` puxa temperatura para 34–38 °C, AQI para 150–220 e
     vento para 2–6 km/h, umidade para 15–28% e o poluente principal para PM2.5.
+    Inversão térmica: madrugada (0h–8h de Brasília) sem chuva tem delta de +0,5 a +4,0 °C;
+    fora disso, delta de −8,0 a −4,0 °C (sem inversão).
     """
 
     nome = "simulador"
@@ -358,6 +393,13 @@ class Simulador:
             aleatorio.uniform(2.0, 6.0) if self.onda_de_calor else aleatorio.uniform(6.0, 20.0), 1
         )
 
+        # Madrugada (horário de Brasília) sem chuva: o solo esfria e o ar acima fica mais quente
+        hora_local = (hora + FUSO_BRASILIA).hour
+        if hora_local < 8 and chuva_atual == 0.0:
+            inversao_delta_c = round(aleatorio.uniform(0.5, 4.0), 1)
+        else:
+            inversao_delta_c = round(aleatorio.uniform(-8.0, -4.0), 1)
+
         return LeituraAmbiente(
             geohash=geohash5,
             latitude=latitude,
@@ -381,4 +423,6 @@ class Simulador:
             poluente="pm2_5"
             if self.onda_de_calor
             else aleatorio.choice(["pm2_5", "pm10", "ozonio"]),
+            inversao_termica=inversao_delta_c > 0,
+            inversao_delta_c=inversao_delta_c,
         )

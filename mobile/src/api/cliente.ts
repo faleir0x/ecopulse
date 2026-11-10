@@ -6,6 +6,7 @@ import type {
   ModoRota,
   Ocorrencia,
   OcorrenciaDetalhe,
+  Presenca,
   RotaSegura,
   Severidade,
   SituacaoRelato,
@@ -241,6 +242,36 @@ export async function lerAmbiente(lat: number, lon: number, op: Opcoes = {}): Pr
 export async function lerCamada(bbox: Bbox, op: Opcoes = {}): Promise<CelulaAmbiente[]> {
   return pedir<CelulaAmbiente[]>(
     `/v1/ambiente/camada?bbox=${bbox.lonMin},${bbox.latMin},${bbox.lonMax},${bbox.latMax}`,
+    { method: 'GET' },
+    op,
+    true,
+  );
+}
+
+/** Corpo do POST /v1/telemetria (schemas.TelemetriaIn): sinal de presença do aparelho. */
+export type TelemetriaEnvio = {
+  device_id: string;
+  latitude: number;
+  longitude: number;
+  precisao_m: number | null;
+  /** ISO 8601 do momento da posição. */
+  registrado_em: string;
+};
+
+/** POST /v1/telemetria → 202. O servidor guarda só a célula (~1 km), não a coordenada exata. */
+export async function enviarTelemetria(corpo: TelemetriaEnvio, op: Opcoes = {}): Promise<void> {
+  await pedir<void>(
+    '/v1/telemetria',
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo) },
+    op,
+    false,
+  );
+}
+
+/** GET /v1/presenca?lat=&lon=: aparelhos com sinal na janela por perto. */
+export async function buscarPresenca(lat: number, lon: number, op: Opcoes = {}): Promise<Presenca> {
+  return pedir<Presenca>(
+    `/v1/presenca?lat=${lat.toFixed(5)}&lon=${lon.toFixed(5)}`,
     { method: 'GET' },
     op,
     true,

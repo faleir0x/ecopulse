@@ -166,11 +166,13 @@ Redis Cluster: redis-1..3 mestres + redis-4..6 réplicas (uma por mestre), node 
 
 ## Cenários de demonstração
 
+Roteiro completo, comandos e o que observar em [`infra/demo/README.md`](../infra/demo/README.md).
+
 1. Relato em um celular, alerta no outro em segundos.
-2. Worker derrubado: fila acumula; ao religar, tudo é processado sem perda.
-3. Mensagem inválida termina na DLQ.
-4. `docker compose up --scale processor=3`: carga dividida por região.
-5. Modo avião: relato pendente, sincroniza sem duplicar ao voltar a rede.
+2. Worker derrubado: fila acumula; ao religar, tudo é processado sem perda — [`infra/demo/falha-processor.sh`](../infra/demo/falha-processor.sh).
+3. Mensagem inválida termina na DLQ — [`infra/demo/dlq.sh`](../infra/demo/dlq.sh).
+4. `docker compose up --scale processor=3`: carga dividida por região — [`infra/demo/escala.sh`](../infra/demo/escala.sh).
+5. Modo avião: relato pendente, sincroniza sem duplicar ao voltar a rede — passos no [`README`](../infra/demo/README.md#modo-avião-manual).
 
 ## O que revisar se o sistema crescer
 

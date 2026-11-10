@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 [[ -f .env ]] && set -a && . ./.env && set +a
-api="http://localhost:${API_PORT:-8000}"
+api="${ECOPULSE_API:-http://localhost:${API_PORT:-8000}}"
 contar(){ docker compose exec -T postgres psql -U ecopulse -d ecopulse -tAc "select count(*) from relatos"; }
 antes=$(contar); aceitos=0; recusados=0
 for i in $(seq 1 40); do

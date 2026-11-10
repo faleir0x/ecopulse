@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 [[ -f .env ]] && set -a && . ./.env && set +a
-api="http://localhost:${API_PORT:-8000}"
+api="${ECOPULSE_API:-http://localhost:${API_PORT:-8000}}"
 
 contar(){ docker compose exec -T postgres psql -U ecopulse -d ecopulse -tAc "select count(*) from relatos"; }
 filas(){ docker compose exec -T rabbitmq-1 rabbitmqctl list_queues name messages --quiet \

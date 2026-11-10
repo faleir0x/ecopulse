@@ -23,6 +23,14 @@ x-python-service: &python-service
     dockerfile: infra/docker/python.Dockerfile
   networks: [ecopulse]
   restart: unless-stopped
+  # Endurecimento: sem privilégios novos nem capabilities, sistema de arquivos só de leitura
+  # (só /tmp gravável) e limites de memória e processos
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: [ALL]
+  read_only: true
+  tmpfs: [/tmp]
+  mem_limit: 384m
+  pids_limit: 256
   environment: *python-env
   depends_on:
     rabbitmq: { condition: service_healthy }
@@ -110,6 +118,27 @@ services:
       rabbitmq-1: { condition: service_healthy }
       rabbitmq-2: { condition: service_healthy }
       rabbitmq-3: { condition: service_healthy }
+
+  # Política das filas de retry: dead-letter "at-least-once" (o padrão das filas quorum é
+  # at-most-once). Política e não argumento: argumento de fila existente não pode mudar.
+  rabbitmq-politicas:
+    image: rabbitmq:3.13-management
+    networks: [ecopulse]
+    restart: "no"
+    environment:
+      RABBITMQ_CTL_ERL_ARGS: -setcookie ${RABBITMQ_COOKIE:-ecopulse-cookie-local}
+    entrypoint:
+      - rabbitmqctl
+      - -n
+      - rabbit@rabbitmq-1
+      - set_policy
+      - --apply-to
+      - quorum_queues
+      - retry-pelo-menos-uma
+      - ^relatos\.retry\.
+      - '{"dead-letter-strategy":"at-least-once","overflow":"reject-publish"}'
+    depends_on:
+      rabbitmq-1: { condition: service_healthy }
 
   # PostgreSQL primário + réplica por streaming (postgres-2, hot standby). Failover manual:
   # promover a réplica (pg_promote); wal_log_hints permite o pg_rewind na volta.
@@ -319,7 +348,8 @@ services:
       context: ..
       dockerfile: infra/docker/python.Dockerfile
       args: { SERVICE: realtime }
-    command: ["uvicorn", "ecopulse_realtime.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    # Frames de no máximo 4 KB: o protocolo só tem subscribe (até 50 células) e ping
+    command: ["uvicorn", "ecopulse_realtime.main:app", "--host", "0.0.0.0", "--port", "8000", "--ws-max-size", "4096"]
     healthcheck:
       # python em vez de curl: a imagem slim não tem curl
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=2)"]

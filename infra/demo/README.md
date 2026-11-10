@@ -1,6 +1,6 @@
 # Demonstrações do EcoPulse
 
-Roteiros para a apresentação da APS. Rode da raiz do repositório; os scripts carregam `infra/.env` sozinhos. A stack precisa estar de pé (`cd infra && docker compose up -d`).
+Roteiros para a apresentação da APS. Rode da raiz do repositório; os scripts carregam `infra/.env` sozinhos e usam a API em `http://localhost:$API_PORT` (ou em `ECOPULSE_API`, se definida — ver `infra/deploy/README.md` para a VPS). A stack precisa estar de pé (`cd infra && docker compose up -d`).
 
 > Os cenários de falha param ou escalam containers: rode um de cada vez.
 

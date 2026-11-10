@@ -1,0 +1,39 @@
+# Produção numa VPS, sem túnel: Caddy com HTTPS na frente da API e do realtime.
+#   docker compose -f docker-compose.yml -f docker-compose.ghcr.yml -f docker-compose.prod.yml up -d
+# Guia completo em infra/deploy/README.md.
+services:
+  caddy:
+    image: caddy:2.11.7-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      API_HOST: ${API_HOST:?defina API_HOST no .env}
+      RT_HOST: ${RT_HOST:?defina RT_HOST no .env}
+      ACME_EMAIL: ${ACME_EMAIL:?defina ACME_EMAIL no .env}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    # IP fixo: a API e o realtime só confiam no CF-Connecting-IP vindo daqui
+    networks: { ecopulse: { ipv4_address: 10.89.70.251 } }
+    depends_on:
+      api: { condition: service_healthy }
+      realtime: { condition: service_healthy }
+
+  # API e realtime só pelo Caddy: sem porta publicada na VPS
+  api:
+    ports: !reset []
+    environment:
+      ECOPULSE_PROXIES_CONFIAVEIS: 10.89.70.251
+      ECOPULSE_API_DOCS: "false"
+  realtime:
+    ports: !reset []
+    environment:
+      ECOPULSE_PROXIES_CONFIAVEIS: 10.89.70.251
+
+volumes:
+  caddy_data:
+  caddy_config:

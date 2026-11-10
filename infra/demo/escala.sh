@@ -4,7 +4,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 [[ -f .env ]] && set -a && . ./.env && set +a
-api="http://localhost:${API_PORT:-8000}"
+api="${ECOPULSE_API:-http://localhost:${API_PORT:-8000}}"
 
 manter=false
 for arg in "$@"; do

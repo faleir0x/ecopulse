@@ -9,7 +9,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 [[ -f .env ]] && set -a && . ./.env && set +a
-api="http://localhost:${API_PORT:-8000}"
+api="${ECOPULSE_API:-http://localhost:${API_PORT:-8000}}"
 
 sql(){ docker compose exec -T "$1" psql -U ecopulse -d ecopulse -tAc "$2"; }
 no_de_pe(){ [ -n "$(docker compose ps --status running -q "$1")" ]; }

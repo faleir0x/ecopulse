@@ -1,0 +1,19 @@
+# Proxy reverso da VPS: HTTPS automático (Let's Encrypt) para a API e o WebSocket.
+# Os hosts vêm do .env (API_HOST, RT_HOST); o DNS deles aponta direto para a VPS.
+{
+	email {$ACME_EMAIL}
+}
+
+{$API_HOST} {
+	encode zstd gzip
+	# O IP real do cliente vai no mesmo cabeçalho que a API já sabe ler (só de proxy confiável)
+	reverse_proxy api:8000 {
+		header_up CF-Connecting-IP {remote_host}
+	}
+}
+
+{$RT_HOST} {
+	reverse_proxy realtime:8000 {
+		header_up CF-Connecting-IP {remote_host}
+	}
+}

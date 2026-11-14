@@ -5,7 +5,7 @@ description = "API HTTP: recebe comandos e atende leituras"
 requires-python = ">=3.13"
 dependencies = [
   "ecopulse-common",
-  "fastapi>=0.115",
+  "fastapi>=0.162.4",
   "httpx>=0.28",
   "uvicorn[standard]>=0.32",
 ]

@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Código compartilhado entre os serviços: eventos, mensageria, banco e configuração"
 requires-python = ">=3.13"
 dependencies = [
-  "aio-pika>=9.5",
+  "aio-pika>=10.2.3",
   "asyncpg>=0.30",
   "pydantic>=2.10",
   "pydantic-settings>=2.6",

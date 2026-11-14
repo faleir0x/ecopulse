@@ -395,7 +395,7 @@ requires-dist = [
     { name = "ecopulse-common", editable = "packages/common" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.28" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.32" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.54.0" },
 ]
 
 [[package]]
@@ -476,7 +476,7 @@ dependencies = [
 requires-dist = [
     { name = "ecopulse-common", editable = "packages/common" },
     { name = "fastapi", specifier = ">=0.115" },
-    { name = "uvicorn", extras = ["standard"], specifier = ">=0.32" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.54.0" },
 ]
 
 [[package]]

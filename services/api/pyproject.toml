@@ -7,7 +7,7 @@ dependencies = [
   "ecopulse-common",
   "fastapi>=0.115",
   "httpx>=0.28",
-  "uvicorn[standard]>=0.32",
+  "uvicorn[standard]>=0.54.0",
 ]
 
 [tool.uv.sources]

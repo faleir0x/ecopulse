@@ -38,7 +38,7 @@
     "react-native-worklets": "0.13.0"
   },
   "devDependencies": {
-    "@iconify-json/solar": "^1.2.14",
+    "@iconify-json/solar": "^1.2.16",
     "@iconify/utils": "^3.1.7",
     "@testing-library/react-native": "^14.1.0",
     "@types/jest": "30.0.0",
